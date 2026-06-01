@@ -56,15 +56,16 @@ export default function Home() {
     setLang(getSystemLang());
     getBooks().then(async bs => {
       let list = bs;
-      // If no books, auto-create demo
-      if (list.length === 0) {
+      const hasAnyBodyChapters = list.some(b => b.chapters?.some(c => c.kind === "body"));
+      // If no books, or all books lack body chapters → auto-create demo
+      if (list.length === 0 || !hasAnyBodyChapters) {
         const demo = createDemoBook();
         await saveBook(demo);
         list = [demo];
       }
       setBooks(list);
-      // Auto-select last opened or first book
-      if (list.length > 0 && !selectedBook) {
+      // Auto-select first book on initial mount
+      if (list.length > 0) {
         setSelectedBook(list[0]);
       }
       // Build extractedChapters set
