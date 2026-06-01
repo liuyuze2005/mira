@@ -137,7 +137,7 @@ export default function ReaderView({
       {/* Reading area */}
       <div
         ref={containerRef}
-        className="p-5 max-h-[60vh] overflow-y-auto leading-relaxed"
+        className="p-5 leading-relaxed"
         style={{ fontFamily: "Georgia, 'Noto Serif SC', serif" }}
       >
         <div className="space-y-4 text-primary/85 text-[15px]">
