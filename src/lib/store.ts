@@ -78,6 +78,8 @@ export function createBook(title: string, author: string): Book {
     id: generateId(),
     title,
     author,
+    chapters: [],
+    currentChapter: 0,
     characters: [],
     scenes: [],
     moments: [],
@@ -89,14 +91,24 @@ export function createBook(title: string, author: string): Book {
 // ── Migration: legacy VisualAsset-based Book → new Card-based Book ──
 function migrateIfLegacy(raw: unknown): Book {
   const r = raw as Record<string, unknown>;
-  // Already v2
-  if (r.characters !== undefined && r.scenes !== undefined) return raw as Book;
+  // Already v2+
+  if (r.chapters !== undefined) return raw as Book;
+  // Old v2 (no chapters)
+  if (r.characters !== undefined && r.scenes !== undefined) {
+    return {
+      ...(raw as Book),
+      chapters: [],
+      currentChapter: 0,
+    };
+  }
   // Legacy
   const legacy = raw as LegacyBook;
   return {
     id: legacy.id,
     title: legacy.title,
     author: legacy.author,
+    chapters: [],
+    currentChapter: 0,
     characters: [],
     scenes: [],
     moments: [],

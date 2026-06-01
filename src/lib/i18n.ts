@@ -60,6 +60,25 @@ export interface TranslationDict {
   revealed: string;
   hidden: string;
   lockedUntilChapter: string;
+  // Overview
+  overviewTitle: string;
+  genre: string;
+  narrativeStyle: string;
+  themes: string;
+  setting: string;
+  // Chapters
+  chapterList: string;
+  chapters: string;
+  frontMatter: string;
+  backMatter: string;
+  bodyChapters: string;
+  parseChapters: string;
+  parsingChapters: string;
+  extractChapter: string;
+  extractingChapter: string;
+  chapterProgress: string;
+  conceptLabel: string;
+  totalChapters: string;
   // Generation
   generateQueue: string;
   generateAll: string;
@@ -179,6 +198,25 @@ const zh: TranslationDict = {
   revealed: "已解锁",
   hidden: "已隐藏",
   lockedUntilChapter: "第 {chapter} 章起解锁",
+  // Overview
+  overviewTitle: "全书概览",
+  genre: "题材",
+  narrativeStyle: "叙事风格",
+  themes: "主题",
+  setting: "世界观",
+  // Chapters
+  chapterList: "章节列表",
+  chapters: "章",
+  frontMatter: "前置内容",
+  backMatter: "后置内容",
+  bodyChapters: "正文",
+  parseChapters: "解析章节结构",
+  parsingChapters: "正在解析章节…",
+  extractChapter: "提取本章内容",
+  extractingChapter: "正在提取…",
+  chapterProgress: "第 {current} / {total} 章",
+  conceptLabel: "概念",
+  totalChapters: "共 {count} 章",
   // Generation
   generateQueue: "生图队列",
   generateAll: "一键生成全部",
@@ -303,6 +341,25 @@ const en: TranslationDict = {
   revealed: "Revealed",
   hidden: "Hidden",
   lockedUntilChapter: "Unlocks at chapter {chapter}",
+  // Overview
+  overviewTitle: "Book Overview",
+  genre: "Genre",
+  narrativeStyle: "Narrative Style",
+  themes: "Themes",
+  setting: "Setting",
+  // Chapters
+  chapterList: "Chapter List",
+  chapters: "Chapters",
+  frontMatter: "Front Matter",
+  backMatter: "Back Matter",
+  bodyChapters: "Body",
+  parseChapters: "Parse Chapter Structure",
+  parsingChapters: "Parsing chapters…",
+  extractChapter: "Extract This Chapter",
+  extractingChapter: "Extracting…",
+  chapterProgress: "Chapter {current} / {total}",
+  conceptLabel: "Concept",
+  totalChapters: "{count} chapters",
   // Generation
   generateQueue: "Generation Queue",
   generateAll: "Generate All",

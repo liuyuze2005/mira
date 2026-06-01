@@ -17,7 +17,7 @@ export interface AppearanceTraits {
   distinctiveFeatures?: string[];
 }
 
-// ── Core Cards (v1.0) ──
+// ── Core Cards ──
 export interface CharacterCard {
   id: string;
   name: string;
@@ -25,6 +25,7 @@ export interface CharacterCard {
   role: "protagonist" | "supporting" | "minor";
   firstMentionChapter?: number;
   lastUpdateChapter?: number;
+  chaptersAppearedIn: number[];
   appearance: AppearanceTraits;
   personality: string[];
   sourceQuotes: SourceQuote[];
@@ -55,6 +56,28 @@ export interface MomentCard {
   createdAt: number;
 }
 
+// ── Chapter Structure ──
+export type SectionKind = "front-matter" | "body" | "back-matter" | "unknown";
+
+export interface ChapterSection {
+  index: number;          // 1-based chapter number
+  title: string;          // chapter title
+  kind: SectionKind;      // classification
+  text: string;           // full chapter text
+  startOffset: number;    // position in source text
+  endOffset: number;
+}
+
+// ── Book Concept (overview, not per-chapter) ──
+export interface BookConcept {
+  genre: string;          // e.g. "武侠", "科幻", "literary fiction"
+  era: string;            // e.g. "清末民初", "22nd century"
+  narrativeStyle: string; // e.g. "第一人称", "多视角", "linear"
+  coreCharacters: { name: string; role: string; brief: string }[];
+  setting: string;        // e.g. "一个架空的封建王朝", "近未来东京"
+  themes: string[];       // e.g. ["成长", "阶级", "命运"]
+}
+
 // ── Book Profile ──
 export interface BookProfile {
   totalChapters: number;
@@ -66,21 +89,29 @@ export interface BookProfile {
     avoid: string[];
     customPrompt: string;
   };
-};
+}
 
 // ── Knowledge Source ──
 export type KnowledgeSource = "llm" | "text-extraction";
 
-// ── Book (v1.0 — replaces old VisualAsset-based model) ──
+// ── Book (v1.1 — chapter-aware) ──
 export interface Book {
   id: string;
   title: string;
   author: string;
+  // Chapters
+  chapters: ChapterSection[];
+  currentChapter: number;          // user's reading position (0 = not set)
+  // Book-level concept
+  concept?: BookConcept;
+  // Accumulated cards
   characters: CharacterCard[];
   scenes: SceneCard[];
   moments: MomentCard[];
+  // Metadata
   profile?: BookProfile;
   knowledgeSource: KnowledgeSource;
+  rawText?: string;                // full text for chapter parsing
   createdAt: number;
 }
 

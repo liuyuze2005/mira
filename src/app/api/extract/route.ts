@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chunkText, mergeCharacterCards, mergeSceneCards } from "@/lib/extractor";
 import { generateId } from "@/lib/store";
-import type { CharacterCard, SceneCard, MomentCard, Confidence } from "@/lib/types";
+import type { CharacterCard, SceneCard, MomentCard } from "@/lib/types";
 
-// ── Config ──
 const CHUNK_SIZE = 4000;
 const MAX_CONCURRENT = 3;
 
@@ -15,57 +14,46 @@ function getEnv() {
   return { apiKey, apiBase, model };
 }
 
-// ── LLM call with confidence-aware prompt ──
 async function extractFromChunk(
   chunk: string,
   chunkIndex: number,
   totalChunks: number,
+  currentChapter: number,
   env: ReturnType<typeof getEnv>
 ): Promise<{ characters: CharacterCard[]; scenes: SceneCard[]; moments: MomentCard[] }> {
-  const prompt = `You are a literary analyst. From the following book excerpt (chunk ${chunkIndex + 1}/${totalChunks}), extract:
+  const prompt = `You are a literary analyst. From chapter ${currentChapter} of a book (chunk ${chunkIndex + 1}/${totalChunks}), extract ONLY what appears in THIS chapter:
 
 1. **Characters** — name, aliases, role (protagonist/supporting/minor), physical appearance (face, hair, clothing, age, body, distinctive features), personality traits.
-2. **Scenes** — location name, type ("atmosphere" for mood-setting descriptions or "spatial-layout" for architectural/spatial descriptions with layout info), description.
+2. **Scenes** — location name, type ("atmosphere" or "spatial-layout"), description.
 3. **Key Moments** — important plot events with strong visual imagery. Include the original text passage.
 
-For EVERY field you output, include a **confidence** marker:
-- "explicit" — directly stated in the text (e.g., "he was tall" → hair color explicit)
-- "inferred" — reasonably deduced from context (e.g., "she wore silk" → wealthy, elegant)
-- "unknown" — no basis in the text, leave the field empty
+For EVERY field, include a **confidence** marker:
+- "explicit" — directly stated
+- "inferred" — reasonably deduced
 
-Also include **sourceQuotes** for each character and scene: a short excerpt from the text that supports your extraction, with the confidence level.
+Include **sourceQuotes** with confidence for each character and scene.
 
-Return ONLY valid JSON in this exact format (no markdown, no extra text):
+Return ONLY valid JSON:
 {
   "characters": [
     {
-      "name": "Character Name",
-      "aliases": ["alias1"],
-      "role": "protagonist",
-      "appearance": { "face": "...", "hair": "...", "clothing": "...", "age": "...", "body": "...", "distinctiveFeatures": ["scar on left cheek"] },
-      "personality": ["brave", "impulsive"],
+      "name": "...", "aliases": [...], "role": "protagonist",
+      "appearance": { "face": "...", "hair": "...", "clothing": "...", "age": "...", "body": "...", "distinctiveFeatures": [...] },
+      "personality": [...],
       "sourceQuotes": [{ "text": "...", "confidence": "explicit" }]
     }
   ],
   "scenes": [
-    {
-      "name": "Scene Name",
-      "type": "atmosphere",
-      "description": "...",
-      "sourceQuotes": [{ "text": "...", "confidence": "explicit" }]
-    }
+    { "name": "...", "type": "atmosphere", "description": "...", "sourceQuotes": [...] }
   ],
   "moments": [
-    {
-      "name": "Moment Name",
-      "passage": "original text passage up to 200 characters"
-    }
+    { "name": "...", "passage": "original text up to 200 chars" }
   ]
 }
 
-Max 5 characters, 3 scenes, 3 moments per chunk. Use the source language of the text for all output.
+Max 5 characters, 3 scenes, 3 moments per chunk. Use the source language for output.
 
-BOOK TEXT:
+CHAPTER ${currentChapter} TEXT:
 ${chunk.slice(0, CHUNK_SIZE)}`;
 
   const response = await fetch(`${env.apiBase}/chat/completions`, {
@@ -89,14 +77,15 @@ ${chunk.slice(0, CHUNK_SIZE)}`;
   if (!content) throw new Error("Empty response from LLM");
 
   const json = JSON.parse(content.replace(/```json\s*|\s*```/g, "").trim());
-
-  // Enrich with IDs and chapter info
   const now = Date.now();
+
   const chars: CharacterCard[] = (json.characters || []).map((c: Record<string, unknown>) => ({
     id: generateId(),
     name: String(c.name || "Unknown"),
     aliases: (c.aliases as string[]) || [],
     role: (c.role as CharacterCard["role"]) || "minor",
+    firstMentionChapter: currentChapter,
+    chaptersAppearedIn: [currentChapter],
     appearance: (c.appearance || {}) as CharacterCard["appearance"],
     personality: (c.personality as string[]) || [],
     sourceQuotes: (c.sourceQuotes || []) as CharacterCard["sourceQuotes"],
@@ -109,7 +98,7 @@ ${chunk.slice(0, CHUNK_SIZE)}`;
     name: String(s.name || "Unknown"),
     type: (s.type as SceneCard["type"]) || "atmosphere",
     description: String(s.description || ""),
-    chapter: chunkIndex + 1,
+    chapter: currentChapter,
     sourceQuotes: (s.sourceQuotes || []) as SceneCard["sourceQuotes"],
     imagePrompt: "",
     createdAt: now,
@@ -119,7 +108,7 @@ ${chunk.slice(0, CHUNK_SIZE)}`;
     id: generateId(),
     name: String(m.name || "Moment"),
     passage: String(m.passage || ""),
-    chapter: chunkIndex + 1,
+    chapter: currentChapter,
     imagePrompt: "",
     createdAt: now,
   }));
@@ -127,10 +116,58 @@ ${chunk.slice(0, CHUNK_SIZE)}`;
   return { characters: chars, scenes: scn, moments: mom };
 }
 
-// ── POST: single-pass or pipeline ──
+// ── Merge extracted data with existing cards ──
+function mergeWithExisting(
+  existing: CharacterCard[],
+  newChars: CharacterCard[],
+  chapter: number
+): CharacterCard[] {
+  const map = new Map<string, CharacterCard>();
+
+  // Index existing by lowercase name
+  for (const c of existing) {
+    map.set(c.name.toLowerCase(), { ...c });
+  }
+
+  for (const nc of newChars) {
+    const key = nc.name.toLowerCase();
+    if (map.has(key)) {
+      const ex = map.get(key)!;
+      // Update appearance (new info takes priority for explicit)
+      for (const [trait, value] of Object.entries(nc.appearance)) {
+        if (value && !(ex.appearance as Record<string, unknown>)[trait]) {
+          (ex.appearance as Record<string, unknown>)[trait] = value;
+        }
+      }
+      // Merge personality
+      ex.personality = [...new Set([...ex.personality, ...nc.personality])];
+      // Merge source quotes
+      ex.sourceQuotes = [...ex.sourceQuotes, ...nc.sourceQuotes];
+      // Track chapters
+      if (!ex.chaptersAppearedIn.includes(chapter)) {
+        ex.chaptersAppearedIn.push(chapter);
+      }
+      ex.lastUpdateChapter = chapter;
+      // Promote role if new has higher
+      if (ex.role === "minor" && nc.role !== "minor") ex.role = nc.role;
+      if (ex.role === "supporting" && nc.role === "protagonist") ex.role = nc.role;
+    } else {
+      map.set(key, nc);
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { text, pipeline = true, chapter } = await req.json();
+    const {
+      text,
+      chapter = 1,
+      existingCharacters,
+      pipeline = true,
+    } = await req.json();
+
     if (!text) return NextResponse.json({ error: "No text provided" }, { status: 400 });
 
     const env = getEnv();
@@ -138,28 +175,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No extraction API key configured" }, { status: 500 });
     }
 
-    const currentChapter = chapter ?? 1;
+    const existingChars: CharacterCard[] = existingCharacters || [];
 
     if (!pipeline) {
-      // Single pass (legacy mode)
       const maxInput = 60_000;
-      const inputText = text.length > maxInput ? text.slice(0, maxInput) : text;
-      const result = await extractFromChunk(inputText, 0, 1, env);
+      const result = await extractFromChunk(text.slice(0, maxInput), 0, 1, chapter, env);
+      const mergedChars = mergeWithExisting(existingChars, result.characters, chapter);
       return NextResponse.json({
-        characters: result.characters.map(c => ({ ...c, firstMentionChapter: currentChapter })),
-        scenes: result.scenes.map(s => ({ ...s, chapter: currentChapter })),
-        moments: result.moments.map(m => ({ ...m, chapter: currentChapter })),
+        characters: mergedChars,
+        scenes: result.scenes,
+        moments: result.moments,
         pipeline: false,
       });
     }
 
-    // ── Pipeline mode: chunk → extract → merge ──
+    // Pipeline mode: chunk within chapter → extract → merge
     const chunks = chunkText(text, CHUNK_SIZE);
     if (chunks.length === 0) {
       return NextResponse.json({ characters: [], scenes: [], moments: [], pipeline: true, totalChunks: 0 });
     }
 
-    // Extract chunks in parallel batches
     const allCharacters: CharacterCard[] = [];
     const allScenes: SceneCard[] = [];
     const allMoments: MomentCard[] = [];
@@ -167,7 +202,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < chunks.length; i += MAX_CONCURRENT) {
       const batch = chunks.slice(i, i + MAX_CONCURRENT);
       const results = await Promise.all(
-        batch.map((chunk, bi) => extractFromChunk(chunk, i + bi, chunks.length, env))
+        batch.map((chunk, bi) => extractFromChunk(chunk, i + bi, chunks.length, chapter, env))
       );
       for (const r of results) {
         allCharacters.push(...r.characters);
@@ -176,16 +211,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Merge & deduplicate
-    const mergedCharacters = mergeCharacterCards(allCharacters);
+    const mergedChars = mergeCharacterCards(allCharacters);
+    // Merge with existing characters from previous chapters
+    const finalChars = mergeWithExisting(existingChars, mergedChars, chapter);
     const mergedScenes = mergeSceneCards(allScenes);
 
     return NextResponse.json({
-      characters: mergedCharacters,
+      characters: finalChars,
       scenes: mergedScenes,
       moments: allMoments,
       pipeline: true,
       totalChunks: chunks.length,
+      chapter,
+      newCharsThisChapter: allCharacters.length,
     });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
