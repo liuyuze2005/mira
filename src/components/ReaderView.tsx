@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import type { ChapterSection, CharacterCard, SceneCard, MomentCard } from "@/lib/types";
 import type { TranslationDict } from "@/lib/i18n";
 
@@ -54,23 +54,26 @@ export default function ReaderView({
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Split chapter text into paragraphs
-  const paragraphs = chapter.text
-    .split(/\n\n+/)
-    .map(p => p.trim())
-    .filter(p => p.length > 0 && !/^(第[零〇一二三四五六七八九十百千\d]+[章节回]|Chapter\s+\d+)/i.test(p));
+  // Split chapter text into paragraphs (memoized)
+  const paragraphs = useMemo(() =>
+    chapter.text
+      .split(/\n\n+/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0 && !/^(第[零〇一二三四五六七八九十百千\d]+[章节回]|Chapter\s+\d+)/i.test(p)),
+    [chapter.text]
+  );
 
   const totalPages = pageBreaks.length;
-  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const safePageIndex = Math.min(pageIndex, Math.max(totalPages - 1, 0));
 
-  // ── Pagination: measure and split into pages ──
-  const calculatePages = useCallback(() => {
+  // ── Pagination: compute pages (returns breaks, does NOT set state) ──
+  const computePages = useCallback(() => {
     const el = pageRef.current;
-    if (!el || paragraphs.length === 0) return;
+    if (!el || paragraphs.length === 0) return [0];
 
-    const pageHeight = el.clientHeight - 48; // subtract padding
-    const charWidth = fontSize * 0.6; // CJK char ~0.6em
-    const containerWidth = el.clientWidth - 64; // subtract padding
+    const pageHeight = el.clientHeight - 48;
+    const charWidth = fontSize * 0.6;
+    const containerWidth = el.clientWidth - 64;
     const charsPerLine = Math.floor(containerWidth / charWidth);
     const linesPerPage = Math.floor(pageHeight / (fontSize * lineHeight));
     const charsPerPage = charsPerLine * linesPerPage;
@@ -79,7 +82,7 @@ export default function ReaderView({
     let currentChars = 0;
 
     for (let i = 0; i < paragraphs.length; i++) {
-      const pLen = paragraphs[i].length + 2; // +2 for paragraph spacing
+      const pLen = paragraphs[i].length + 2;
       if (currentChars + pLen > charsPerPage && currentChars > charsPerPage * 0.3) {
         breaks.push(i);
         currentChars = pLen;
@@ -87,21 +90,25 @@ export default function ReaderView({
         currentChars += pLen;
       }
     }
-
-    setPageBreaks(breaks);
+    return breaks;
   }, [paragraphs, fontSize, lineHeight]);
 
-  // Recalculate on chapter/font change, and on resize
+  // Recalculate on chapter/font change
   useEffect(() => {
-    calculatePages();
+    setPageBreaks(computePages());
     setPageIndex(0);
-  }, [calculatePages, chapter]);
+  }, [computePages]);
 
+  // Recalculate on resize (debounced in effect)
   useEffect(() => {
-    const obs = new ResizeObserver(() => calculatePages());
-    if (pageRef.current) obs.observe(pageRef.current);
+    const el = pageRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(() => {
+      setPageBreaks(computePages());
+    });
+    obs.observe(el);
     return () => obs.disconnect();
-  }, [calculatePages]);
+  }, [computePages]);
 
   // ── Page navigation ──
   const goToPage = (idx: number) => {
