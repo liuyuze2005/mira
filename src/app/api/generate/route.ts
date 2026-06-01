@@ -74,9 +74,13 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await response.json();
-    const imageUrl = data.data?.[0]?.url || null;
+    const imageUrl = data.data?.[0]?.url || data.data?.[0]?.image_url || data.images?.[0]?.url || data.url || null;
 
-    return NextResponse.json({ imageUrl, prompt });
+    // Diagnostic: log response structure for debugging
+    console.log("[generate] Response keys:", Object.keys(data));
+    if (data.data?.[0]) console.log("[generate] data[0] keys:", Object.keys(data.data[0]));
+
+    return NextResponse.json({ imageUrl, prompt, _debug: { responseKeys: Object.keys(data), sampleData: data.data?.[0] ? Object.keys(data.data[0]) : [] } });
   } catch (err: unknown) {
     return NextResponse.json({ imageUrl: null, error: String(err) }, { status: 500 });
   }
