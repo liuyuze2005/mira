@@ -42,7 +42,8 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKey = process.env.IMAGE_GEN_API_KEY;
-    const apiBase = process.env.IMAGE_GEN_BASE_URL || "https://api.openai.com/v1";
+    const rawBase = process.env.IMAGE_GEN_BASE_URL || "https://api.openai.com/v1";
+    const apiBase = rawBase.replace(/\/images\/generations\/?$/, "").replace(/\/chat\/completions\/?$/, "");
 
     if (!apiKey) {
       return NextResponse.json({
