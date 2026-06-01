@@ -145,6 +145,18 @@ export default function Home() {
     setSelectedBook(updated);
   };
 
+  const bodyChapters = selectedBook?.chapters?.filter(c => c.kind === "body") || [];
+  const handlePrevChapter = () => {
+    if (!selectedBook) return;
+    const prev = bodyChapters.filter(c => c.index < selectedBook.currentChapter).pop();
+    if (prev) handleSelectChapter(prev.index);
+  };
+  const handleNextChapter = () => {
+    if (!selectedBook) return;
+    const next = bodyChapters.find(c => c.index > selectedBook.currentChapter);
+    if (next) handleSelectChapter(next.index);
+  };
+
   // ── Generate Map ──
   const [generatingMap, setGeneratingMap] = useState(false);
   const handleGenerateMap = async () => {
@@ -354,7 +366,6 @@ export default function Home() {
 
   // ── READER VIEW ──
   const currentChapter = selectedBook.chapters.find(c => c.index === selectedBook.currentChapter);
-  const bodyChapters = selectedBook.chapters.filter(c => c.kind === "body");
 
   return (
     <div className="min-h-screen bg-neutral flex flex-col">
@@ -472,8 +483,11 @@ export default function Home() {
                   scenes={selectedBook.scenes}
                   moments={selectedBook.moments}
                   currentChapter={selectedBook.currentChapter}
+                  totalChapters={bodyChapters.length}
                   onAsk={handleAsk}
                   onRecap={handleRecap}
+                  onPrevChapter={handlePrevChapter}
+                  onNextChapter={handleNextChapter}
                 />
               )}
 

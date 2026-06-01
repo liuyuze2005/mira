@@ -172,7 +172,8 @@ async function parseEpub(
   for (const idref of spineIds) {
     const href = manifest.get(idref);
     if (!href) continue;
-    const fullPath = resolvePath(opfDir, href);
+    const fullPath = findZipFile(zip, opfDir, href);
+    if (!fullPath) continue;
     const entry = zip.file(fullPath);
     if (!entry) continue;
     const html = await entry.async("text");
@@ -212,12 +213,44 @@ function extractOpfPath(xml: string): string | null {
   return m ? m[1] : null;
 }
 
-function resolvePath(baseDir: string, href: string): string {
-  // If href is absolute (rare), strip leading /
-  const clean = href.startsWith("/") ? href.slice(1) : href;
-  // If baseDir is empty or clean already contains path, use clean
-  if (!baseDir || clean.includes("/")) return clean;
-  return baseDir + clean;
+function findZipFile(zip: any, opfDir: string, href: string): string | null {
+  // Remove fragment (#...) and decode URL encoding
+  let clean = href.split("#")[0];
+  clean = clean.replace(/^\.\//, ""); // strip leading ./
+
+  const candidates: string[] = [];
+
+  // 1. Relative to OPF directory (most common)
+  if (opfDir) candidates.push(opfDir + clean);
+
+  // 2. As-is (root-relative or absolute)
+  candidates.push(clean.startsWith("/") ? clean.slice(1) : clean);
+
+  // 3. Handle ../ references (relative path with parent dirs)
+  if (clean.includes("..")) {
+    const opfParts = opfDir.split("/").filter(Boolean);
+    const relParts = clean.split("/");
+    for (const part of relParts) {
+      if (part === "..") opfParts.pop();
+      else if (part !== ".") opfParts.push(part);
+    }
+    candidates.push(opfParts.join("/"));
+  }
+
+  for (const path of candidates) {
+    if (zip.file(path)) return path;
+  }
+
+  // 4. Last resort: search by filename
+  const filename = clean.split("/").pop();
+  if (filename) {
+    const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    for (const p of Object.keys(zip.files)) {
+      if (p.endsWith("/" + filename) || p === filename) return p;
+    }
+  }
+
+  return null;
 }
 
 function findNcxPath(opfDoc: Document, manifest: Map<string, string>, opfDir: string): string | null {
@@ -226,13 +259,13 @@ function findNcxPath(opfDoc: Document, manifest: Map<string, string>, opfDir: st
   const ncxId = spineEl?.getAttribute("toc");
   if (ncxId) {
     const href = manifest.get(ncxId);
-    if (href) return resolvePath(opfDir, href);
+    if (href) return opfDir + href.replace(/^\.\//, "");
   }
   // Try manifest item with media-type="application/x-dtbncx+xml"
   for (const item of opfDoc.querySelectorAll("item")) {
     if (item.getAttribute("media-type") === "application/x-dtbncx+xml") {
       const href = item.getAttribute("href");
-      if (href) return resolvePath(opfDir, href);
+      if (href) return opfDir + href.replace(/^\.\//, "");
     }
   }
   return null;
