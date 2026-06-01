@@ -1,66 +1,73 @@
 # Mira — Visual Reading Companion
 
-A visual reading companion for people with **aphantasia** — the inability to form mental images. Mira generates character portraits, scene maps, and key moment illustrations from book descriptions, giving readers visual anchors to better understand and enjoy literary works.
+> 米拉 — 心象阅读助手  
+> A visual companion pack generator for readers with aphantasia.
 
-## Why Mira?
+Enter a book title, and Mira uses **AI knowledge** to generate character portraits, scene cards, and key moment illustrations — no ebook upload required for well-known books (《红楼梦》, The Three-Body Problem, Harry Potter…). For obscure books, upload a `.epub`, `.txt`, or `.pdf` and Mira will extract everything automatically.
 
-People with aphantasia struggle to visualize characters and settings when reading. Research confirms that while aphantasic readers enjoy books as much as others, they experience significantly less absorption in the story world, less emotional engagement with characters, and reduced attention to visual descriptions (Speed, Eekhof & Mak, 2024).
-
-Mira bridges this gap by generating a "visual package" for each book — a set of reference images you can browse while reading.
+---
 
 ## Features
 
-- 📚 **Book Library** — Manage visual assets per book
-- 👤 **Character Gallery** — Generate consistent character portraits from text descriptions
-- 🗺️ **Scene Maps** — Generate top-down layouts from spatial descriptions
-- 🎬 **Key Moments** — Generate scene illustrations from plot paragraphs
-- 🎨 **Style Options** — Realistic, Illustrated, Line Art, Pixel Art
-- 📱 **Mobile-First** — Works on your phone while you read
-- 🔒 **Local Storage** — All data stored in your browser via IndexedDB
+- 🔮 **Knowledge-First Pipeline** — AI knowledge extraction for 90%+ of books. Upload only as fallback.
+- 🧑‍🎨 **Character Gallery** — Portraits with source quotes (see exactly where each trait came from)
+- 🗺 **Scene Cards** — Atmosphere illustrations + spatial layout diagrams
+- 🎬 **Key Moments** — Scene illustrations of pivotal plot moments
+- 🔒 **No-Spoiler Mode** — Only reveal characters/scenes up to your current chapter
+- 📦 **Export** — Download the full Visual Companion Pack as JSON
+- 🎨 **Style Editor** — Customize visual style, period, color palette per book
+- 🌐 **Bilingual** — 中 / EN
 
-## Tech Stack
-
-- **Next.js 16** (App Router)
-- **Tailwind CSS v4**
-- **IndexedDB** (no backend required, all data stored locally)
-- **JSZip** (epub parsing)
-- **OpenAI-compatible API** (LLM extraction + image generation)
+---
 
 ## Supported Formats
 
-| Format | Parse | Status |
-|--------|-------|--------|
-| TXT | Direct read | ✅ |
-| EPUB | JSZip → XHTML extraction | ✅ |
-| PDF | pdf-parse (optional) | ⚠️ Experimental |
-| Manual paste | User copies text | ✅ |
+| Format | Upload | AI Knowledge |
+|--------|--------|--------------|
+| Well-known books | Not needed | ✅ Primary |
+| `.txt` | ✅ | Fallback |
+| `.epub` (JSZip) | ✅ | Fallback |
+| `.pdf` (pdf-parse) | ✅ | Fallback |
 
-## Getting Started
+---
+
+## Tech Stack
+
+- **Frontend**: Next.js 16 (App Router) + React 19 + Tailwind CSS 4
+- **Storage**: IndexedDB (local, no backend)
+- **APIs**: LLM extraction (OpenAI-compatible), image generation (DALL·E or compatible)
+- **File parsing**: JSZip (epub), pdf-parse (pdf)
+
+---
+
+## Environment Variables
+
+Create `.env.local`:
 
 ```bash
-# Install dependencies
-npm install
+# LLM for extraction and knowledge queries
+EXTRACT_API_KEY=sk-...
+EXTRACT_BASE_URL=https://your-llm-proxy.com/v1
+EXTRACT_MODEL=gpt-4o-mini
 
-# Configure your image generation API key
-cp .env.local.example .env.local
-# Edit .env.local with your API key
-
-# Start the dev server
-npm run dev
+# Image generation
+IMAGE_GEN_API_KEY=sk-...
+IMAGE_GEN_BASE_URL=https://your-image-proxy.com/v1
+IMAGE_GEN_MODEL=dall-e-3
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+`EXTRACT_API_KEY` falls back to `IMAGE_GEN_API_KEY` if not set.
 
-## Configuration
+---
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `IMAGE_GEN_API_KEY` | OpenAI-compatible API key | Required |
-| `IMAGE_GEN_BASE_URL` | API base URL | `https://api.openai.com/v1` |
-| `IMAGE_GEN_MODEL` | Model name | `dall-e-3` |
+## Development
 
-## Design
+```bash
+npm install
+npm run dev
+# → http://localhost:3000
+```
 
-See [DESIGN.md](DESIGN.md) for the complete design system specification (Google DESIGN.md format).
+## License
 
-
+MIT

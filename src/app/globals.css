@@ -10,8 +10,8 @@
   --color-muted: #6B6358;
   --color-danger: #B8422E;
   --color-success: #6B8E4E;
-  --font-serif: "Crimson Text", Georgia, serif;
-  --font-sans: Inter, system-ui, sans-serif;
+  --font-serif: Georgia, "Noto Serif SC", "Source Han Serif SC", serif;
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 * {

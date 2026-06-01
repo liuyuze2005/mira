@@ -1,75 +1,120 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { Book, VisualAsset, AssetType, ImageStyle } from "@/lib/types";
-import { getBooks, saveBook, deleteBook, createBook, createAsset, generateId } from "@/lib/store";
+import type { Book, CharacterCard, SceneCard, MomentCard, BookProfile } from "@/lib/types";
+import { getBooks, saveBook, deleteBook, createBook, generateId, getBook } from "@/lib/store";
+import { filterByChapter, buildCharacterPrompt, buildScenePrompt, buildMomentPrompt } from "@/lib/extractor";
 import { Lang, getSystemLang, translations, TranslationDict } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import BookUpload from "@/components/BookUpload";
+import CharacterCardComp from "@/components/CharacterCard";
+import SceneCardComp from "@/components/SceneCard";
+import SpoilerGate from "@/components/SpoilerGate";
+import PromptEditor from "@/components/PromptEditor";
+import GenerateQueue from "@/components/GenerateQueue";
+import ExportPack from "@/components/ExportPack";
 
+// ── Types ──
 interface ParseResult { text: string; fullLength: number; truncated: boolean; fileName: string; format: string; }
+interface QueueItem { id: string; label: string; status: "queued" | "generating" | "done" | "failed"; }
 
+// ── Main ──
 export default function Home() {
   const [lang, setLang] = useState<Lang>("zh");
   const [books, setBooks] = useState<Book[]>([]);
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [showAddBook, setShowAddBook] = useState(false);
-  const [showAddAsset, setShowAddAsset] = useState<AssetType | null>(null);
-  const [generating, setGenerating] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Knowledge-first
+  const [knowing, setKnowing] = useState(false);
+
+  // Upload
   const [parsedText, setParsedText] = useState<ParseResult | null>(null);
   const [extracting, setExtracting] = useState(false);
-  const [extracted, setExtracted] = useState<{ characters: { name: string; description: string; traits: string }[]; scenes: { name: string; description: string }[]; moments: { name: string; passage: string }[] } | null>(null);
+  const [extractProgress, setExtractProgress] = useState("");
 
-  const handleExtract = async () => {
-    if (!parsedText) return;
-    setExtracting(true);
-    try {
-      const res = await fetch("/api/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: parsedText.text }) });
-      const data = await res.json();
-      setExtracted({
-        characters: data.characters || [],
-        scenes: data.scenes || [],
-        moments: data.moments || [],
-      });
-    } catch {} finally { setExtracting(false); }
-  };
+  // Spoiler
+  const [currentChapter, setCurrentChapter] = useState(0);
 
-  const handleBatchGenerate = async () => {
-    if (!extracted || !selectedBook) return;
-    const newAssets = [
-      ...extracted.characters.map(c => createAsset("character", c.name, c.description + (c.traits ? ` Traits: ${c.traits}` : ""))),
-      ...extracted.scenes.map(s => createAsset("scene-map", s.name, s.description)),
-      ...extracted.moments.map(m => createAsset("key-moment", m.name, m.passage)),
-    ];
-    const updatedBook = { ...selectedBook, assets: [...selectedBook.assets, ...newAssets] };
-    await saveBook(updatedBook);
-    setSelectedBook(updatedBook);
-    setExtracted(null);
+  // Queue
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [queueRunning, setQueueRunning] = useState(false);
 
-    // Generate images one by one
-    for (const asset of newAssets) {
-      setGenerating(asset.id);
-      try {
-        const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: asset.type, label: asset.label, description: asset.description }) });
-        const data = await res.json();
-        if (data.imageUrl) {
-          const current = await (await import("@/lib/store")).getBook(selectedBook.id);
-          if (current) {
-            const withImage = { ...current, assets: current.assets.map(a => a.id === asset.id ? { ...a, imageUrl: data.imageUrl } : a) };
-            await saveBook(withImage);
-            setSelectedBook(withImage);
-          }
-        }
-      } finally { setGenerating(null); }
-    }
-  };
+  // Style
+  const [globalStyle, setGlobalStyle] = useState<BookProfile["style"]>();
 
-  const t = translations[lang];
-
+  // Init
   useEffect(() => { setLang(getSystemLang()); }, []);
   useEffect(() => { getBooks().then(setBooks).finally(() => setLoading(false)); }, []);
 
+  const t = translations[lang];
+
+  // ── Knowledge-First Extraction ──
+  const handleKnowledge = async () => {
+    if (!selectedBook) return;
+    setKnowing(true);
+    try {
+      const res = await fetch("/api/knowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: selectedBook.title, author: selectedBook.author, language: lang }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      const updated = {
+        ...selectedBook,
+        characters: data.characters || [],
+        scenes: data.scenes || [],
+        moments: data.moments || [],
+        knowledgeSource: "llm" as const,
+      };
+      await saveBook(updated);
+      setSelectedBook(updated);
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      setKnowing(false);
+    }
+  };
+
+  // ── Upload → Extract ──
+  const handleExtract = async () => {
+    if (!parsedText || !selectedBook) return;
+    setExtracting(true);
+    setExtractProgress("");
+    try {
+      const res = await fetch("/api/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: parsedText.text, pipeline: true }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      if (data.pipeline && data.totalChunks) {
+        setExtractProgress(`${data.totalChunks} chunks processed`);
+      }
+
+      const updated = {
+        ...selectedBook,
+        characters: [...selectedBook.characters, ...(data.characters || [])],
+        scenes: [...selectedBook.scenes, ...(data.scenes || [])],
+        moments: [...selectedBook.moments, ...(data.moments || [])],
+        knowledgeSource: "text-extraction" as const,
+      };
+      await saveBook(updated);
+      setSelectedBook(updated);
+      setParsedText(null);
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  // ── Book Actions ──
   const handleAddBook = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
@@ -89,45 +134,123 @@ export default function Home() {
     setBooks(await getBooks());
   };
 
-  const handleAddAsset = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!selectedBook || !showAddAsset) return;
-    const form = e.currentTarget;
-    const label = (form.elements.namedItem("label") as HTMLInputElement).value.trim();
-    const description = (form.elements.namedItem("description") as HTMLTextAreaElement).value.trim();
-    const style = (form.elements.namedItem("style") as HTMLSelectElement).value as ImageStyle;
-    if (!label || !description) return;
+  // ── Generate Queue ──
+  const startGenerateQueue = async () => {
+    if (!selectedBook || queueRunning) return;
+    setQueueRunning(true);
 
-    const asset = createAsset(showAddAsset, label, description, style);
-    const updatedBook = { ...selectedBook, assets: [...selectedBook.assets, asset] };
-    await saveBook(updatedBook);
-    setSelectedBook(updatedBook);
-    setShowAddAsset(null);
+    const style = globalStyle || selectedBook.profile?.style;
+    const profile = selectedBook.profile;
 
-    setGenerating(asset.id);
+    const items: QueueItem[] = [
+      ...selectedBook.characters.filter(c => !c.imageUrl).map(c => ({ id: c.id, label: c.name, status: "queued" as const })),
+      ...selectedBook.scenes.filter(s => !s.imageUrl).map(s => ({ id: s.id, label: s.name, status: "queued" as const })),
+      ...selectedBook.moments.filter(m => !m.imageUrl).map(m => ({ id: m.id, label: m.name, status: "queued" as const })),
+    ];
+    setQueue(items);
+
+    for (const item of items) {
+      setQueue(prev => prev.map(i => i.id === item.id ? { ...i, status: "generating" } : i));
+
+      try {
+        let prompt = "";
+        const char = selectedBook.characters.find(c => c.id === item.id);
+        const scn = selectedBook.scenes.find(s => s.id === item.id);
+        const mom = selectedBook.moments.find(m => m.id === item.id);
+
+        if (char) prompt = buildCharacterPrompt(char, style);
+        else if (scn) prompt = buildScenePrompt(scn, style);
+        else if (mom) prompt = buildMomentPrompt(mom, style);
+
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, style: style?.visualStyle }),
+        });
+        const data = await res.json();
+
+        if (data.imageUrl) {
+          const current = await getBook(selectedBook.id);
+          if (current) {
+            const updateCard = <T extends { id: string; imageUrl?: string }>(cards: T[]): T[] =>
+              cards.map(c => c.id === item.id ? { ...c, imageUrl: data.imageUrl } as T : c);
+            const updated = {
+              ...current,
+              characters: updateCard(current.characters),
+              scenes: updateCard(current.scenes),
+              moments: updateCard(current.moments),
+            };
+            await saveBook(updated);
+            setSelectedBook(updated);
+          }
+        }
+
+        setQueue(prev => prev.map(i => i.id === item.id ? { ...i, status: data.imageUrl ? "done" : "failed" } : i));
+      } catch {
+        setQueue(prev => prev.map(i => i.id === item.id ? { ...i, status: "failed" } : i));
+      }
+    }
+    setQueueRunning(false);
+  };
+
+  const handleRetryQueueItem = async (id: string) => {
+    setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "queued" } : i));
+    // Re-run generate for this single item
+    if (!selectedBook) return;
+    const style = globalStyle || selectedBook.profile?.style;
+    const char = selectedBook.characters.find(c => c.id === id);
+    const scn = selectedBook.scenes.find(s => s.id === id);
+    const mom = selectedBook.moments.find(m => m.id === id);
+
+    let prompt = "";
+    if (char) prompt = buildCharacterPrompt(char, style);
+    else if (scn) prompt = buildScenePrompt(scn, style);
+    else if (mom) prompt = buildMomentPrompt(mom, style);
+
+    setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "generating" } : i));
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: asset.type, label, description, style }),
+        body: JSON.stringify({ prompt, style: style?.visualStyle }),
       });
       const data = await res.json();
       if (data.imageUrl) {
-        const withImage = { ...updatedBook, assets: updatedBook.assets.map(a => a.id === asset.id ? { ...a, imageUrl: data.imageUrl } : a) };
-        await saveBook(withImage);
-        setSelectedBook(withImage);
+        const current = await getBook(selectedBook.id);
+        if (current) {
+          const update = <T extends { id: string; imageUrl?: string }>(cards: T[]): T[] =>
+            cards.map(c => c.id === id ? { ...c, imageUrl: data.imageUrl } as T : c);
+          const updated = { ...current, characters: update(current.characters), scenes: update(current.scenes), moments: update(current.moments) };
+          await saveBook(updated);
+          setSelectedBook(updated);
+        }
       }
-    } finally {
-      setGenerating(null);
+      setQueue(prev => prev.map(i => i.id === id ? { ...i, status: data.imageUrl ? "done" : "failed" } : i));
+    } catch {
+      setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "failed" } : i));
     }
   };
 
-  const handleDeleteAsset = async (assetId: string) => {
+  // ── Save profile ──
+  const handleSaveProfile = async (style: BookProfile["style"]) => {
+    setGlobalStyle(style);
     if (!selectedBook) return;
-    const updated = { ...selectedBook, assets: selectedBook.assets.filter(a => a.id !== assetId) };
+    const updated = {
+      ...selectedBook,
+      profile: {
+        totalChapters: selectedBook.profile?.totalChapters || 120,
+        chapterTitles: selectedBook.profile?.chapterTitles || [],
+        style,
+      },
+    };
     await saveBook(updated);
     setSelectedBook(updated);
   };
+
+  // ── Spoiler filtering ──
+  const filtered = currentChapter > 0
+    ? filterByChapter(selectedBook?.characters || [], selectedBook?.scenes || [], selectedBook?.moments || [], currentChapter)
+    : { characters: selectedBook?.characters || [], scenes: selectedBook?.scenes || [], moments: selectedBook?.moments || [] };
 
   // ── Book Library View ──
   if (!selectedBook) {
@@ -167,7 +290,8 @@ export default function Home() {
                   <h3 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary">{book.title}</h3>
                   <p className="text-secondary text-sm">{book.author}</p>
                   <p className="text-muted text-xs mt-2">
-                    {book.assets.length} {t.assets}{book.assets.some(a => a.imageUrl) ? ` · ${book.assets.filter(a => a.imageUrl).length} ${t.images}` : ""}
+                    {book.characters.length} {t.knownChars} · {book.scenes.length} {t.knownScenes} · {book.moments.length} {t.knownMoments}
+                    {book.knowledgeSource === "llm" && <span className="ml-2 text-tertiary text-[10px]">({t.sourceLLM})</span>}
                   </p>
                 </button>
               ))}
@@ -178,8 +302,8 @@ export default function Home() {
         {showAddBook && (
           <Modal onClose={() => setShowAddBook(false)} title={t.addBook}>
             <form onSubmit={handleAddBook} className="space-y-4">
-              <Input label={t.bookTitle} name="title" placeholder="e.g. 红楼梦" required autoFocus />
-              <Input label={t.author} name="author" placeholder="e.g. 曹雪芹" />
+              <Input label={t.bookTitle} name="title" placeholder="e.g. 红楼梦 / The Three-Body Problem" required autoFocus />
+              <Input label={t.author} name="author" placeholder="e.g. 曹雪芹 / Liu Cixin" />
               <SubmitButton>{t.addToLibrary}</SubmitButton>
             </form>
           </Modal>
@@ -189,13 +313,14 @@ export default function Home() {
   }
 
   // ── Book Detail View ──
-  const assetsByType = (type: AssetType) => selectedBook.assets.filter(a => a.type === type);
+  const hasContent = selectedBook.characters.length > 0 || selectedBook.scenes.length > 0;
 
   return (
     <div className="min-h-screen bg-neutral">
+      {/* Header */}
       <header className="sticky top-0 z-10 bg-neutral border-b border-secondary/10 px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center gap-3">
-          <button onClick={() => setSelectedBook(null)} className="text-secondary hover:text-primary transition-colors p-1">←</button>
+        <div className="max-w-5xl mx-auto flex items-center gap-3">
+          <button onClick={() => setSelectedBook(null)} className="text-secondary hover:text-primary transition-colors p-1">{t.back}</button>
           <div className="flex-1 min-w-0">
             <h1 className="font-[family-name:var(--font-serif)] text-xl font-semibold text-primary truncate">{selectedBook.title}</h1>
             <p className="text-secondary text-sm truncate">{selectedBook.author}</p>
@@ -205,113 +330,191 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-8">
-        {/* Book Upload */}
-        <BookUpload t={t} onParsed={setParsedText} />
-        {parsedText && !extracted && (
-          <div className="bg-surface rounded-xl border border-secondary/10 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-success font-medium">{t.parseDone}: {parsedText.fileName} ({parsedText.fullLength.toLocaleString()} chars{parsedText.truncated ? ", truncated" : ""})</p>
-              <button onClick={() => setParsedText(null)} className="text-muted hover:text-secondary text-sm">{t.close}</button>
-            </div>
-            <p className="text-muted text-sm mb-3">{lang === "zh" ? "让 AI 从文本中自动识别人物、场景和关键情节" : "Let AI extract characters, scenes, and key moments"}</p>
-            <button onClick={handleExtract} disabled={extracting}
-              className="px-4 py-2 bg-tertiary text-neutral rounded-xl font-semibold text-sm hover:bg-[#E5C06A] transition-colors disabled:opacity-50">
-              {extracting ? t.extracting : t.extractBtn}
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+        {/* ── Knowledge-First Panel ── */}
+        {!hasContent && (
+          <div className="bg-surface rounded-xl border border-secondary/10 p-6 text-center space-y-3">
+            <h2 className="font-[family-name:var(--font-serif)] text-xl font-semibold text-primary">{t.knowledgeTitle}</h2>
+            <p className="text-muted text-sm max-w-md mx-auto">{t.knowledgeDesc}</p>
+            <button
+              onClick={handleKnowledge}
+              disabled={knowing}
+              className="px-6 py-3 bg-tertiary text-neutral rounded-xl font-semibold hover:bg-[#E5C06A] transition-colors disabled:opacity-50"
+            >
+              {knowing ? t.knowing : t.knowBtn}
             </button>
+
+            {/* Upload fallback */}
+            <div className="mt-6 pt-6 border-t border-secondary/10">
+              <BookUpload t={t} onParsed={setParsedText} />
+              {parsedText && !extracting && (
+                <div className="mt-3 bg-elevated rounded-lg p-3 text-left">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-success font-medium">{t.parseDone}: {parsedText.fileName}</p>
+                    <button onClick={() => setParsedText(null)} className="text-muted hover:text-secondary text-xs">{t.close}</button>
+                  </div>
+                  <button onClick={handleExtract} disabled={extracting}
+                    className="px-4 py-2 bg-tertiary text-neutral rounded-lg font-semibold text-sm hover:bg-[#E5C06A] transition-colors disabled:opacity-50">
+                    {extracting ? `${t.extracting} (${extractProgress})` : t.extractBtn}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {extracted && (
-          <div className="bg-surface rounded-xl border border-secondary/10 p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary">{t.extractionResults}</h3>
-              <button onClick={() => setExtracted(null)} className="text-muted hover:text-secondary text-sm">{t.close}</button>
-            </div>
-            {extracted.characters.length > 0 && (
-              <div>
-                <p className="text-secondary text-xs font-semibold uppercase tracking-wider mb-2">{t.characters} ({extracted.characters.length})</p>
-                <div className="space-y-2">
-                  {extracted.characters.map((c, i) => (
-                    <div key={i} className="bg-elevated rounded-lg p-3 text-sm">
-                      <p className="text-primary font-medium">{c.name}</p>
-                      <p className="text-muted">{c.description}</p>
-                      {c.traits && <p className="text-secondary text-xs mt-1">{c.traits}</p>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {extracted.scenes.length > 0 && (
-              <div>
-                <p className="text-secondary text-xs font-semibold uppercase tracking-wider mb-2">{t.scenes} ({extracted.scenes.length})</p>
-                <div className="space-y-2">
-                  {extracted.scenes.map((s, i) => (
-                    <div key={i} className="bg-elevated rounded-lg p-3 text-sm">
-                      <p className="text-primary font-medium">{s.name}</p>
-                      <p className="text-muted">{s.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {extracted.moments.length > 0 && (
-              <div>
-                <p className="text-secondary text-xs font-semibold uppercase tracking-wider mb-2">{t.moments} ({extracted.moments.length})</p>
-                <div className="space-y-2">
-                  {extracted.moments.map((m, i) => (
-                    <div key={i} className="bg-elevated rounded-lg p-3 text-sm">
-                      <p className="text-primary font-medium">{m.name}</p>
-                      <p className="text-muted italic">"{m.passage.slice(0, 150)}{m.passage.length > 150 ? "…" : ""}"</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <button onClick={handleBatchGenerate}
-              className="w-full py-3 bg-tertiary text-neutral rounded-xl font-semibold text-sm hover:bg-[#E5C06A] transition-colors">
-              {t.generateAll} ({extracted.characters.length + extracted.scenes.length + extracted.moments.length} {t.assets})
-            </button>
-          </div>
-        )}
+        {/* ── Content exists: show cards ── */}
+        {hasContent && (
+          <>
+            {/* Spoiler Gate */}
+            <SpoilerGate
+              t={t}
+              currentChapter={currentChapter}
+              onChange={setCurrentChapter}
+              characterCount={selectedBook.characters.length}
+              revealedCount={filtered.characters.length}
+            />
 
-        <AssetSection title={t.characterGallery} desc={t.characterDesc} type="character"
-          assets={assetsByType("character")} generating={generating} onAdd={() => setShowAddAsset("character")} onDelete={handleDeleteAsset} t={t} />
-        <AssetSection title={t.sceneMaps} desc={t.sceneMapsDesc} type="scene-map"
-          assets={assetsByType("scene-map")} generating={generating} onAdd={() => setShowAddAsset("scene-map")} onDelete={handleDeleteAsset} t={t} />
-        <AssetSection title={t.keyMoments} desc={t.keyMomentsDesc} type="key-moment"
-          assets={assetsByType("key-moment")} generating={generating} onAdd={() => setShowAddAsset("key-moment")} onDelete={handleDeleteAsset} t={t} />
+            {/* Prompt Editor */}
+            <PromptEditor t={t} onApply={handleSaveProfile} />
+
+            {/* ── Characters ── */}
+            {filtered.characters.length > 0 && (
+              <section>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary">{t.characterGallery}</h2>
+                    <p className="text-muted text-xs">{t.characterDesc}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {filtered.characters.map(c => (
+                    <CharacterCardComp key={c.id} card={c} t={t} />
+                  ))}
+                </div>
+                {currentChapter > 0 && filtered.characters.length < selectedBook.characters.length && (
+                  <p className="text-muted text-xs mt-2 text-center">
+                    {selectedBook.characters.length - filtered.characters.length} {t.hidden}
+                  </p>
+                )}
+              </section>
+            )}
+
+            {/* ── Scenes ── */}
+            {filtered.scenes.length > 0 && (
+              <section>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary">{t.sceneGallery}</h2>
+                    <p className="text-muted text-xs">{t.sceneDesc}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {filtered.scenes.map(s => (
+                    <SceneCardComp key={s.id} card={s} t={t} />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* ── Moments ── */}
+            {filtered.moments.length > 0 && (
+              <section>
+                <div className="mb-3">
+                  <h2 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary">{t.keyMoments}</h2>
+                  <p className="text-muted text-xs">{t.keyMomentsDesc}</p>
+                </div>
+                <div className="space-y-2">
+                  {filtered.moments.map(m => (
+                    <div key={m.id} className="bg-surface rounded-xl border border-secondary/10 p-3">
+                      <p className="text-primary font-medium text-sm">{m.name}</p>
+                      <p className="text-muted text-xs italic mt-1">
+                        &ldquo;{m.passage.slice(0, 200)}{m.passage.length > 200 ? "…" : ""}&rdquo;
+                      </p>
+                      {m.imageUrl && (
+                        <img src={m.imageUrl} alt={m.name} className="mt-2 rounded-lg max-h-48 object-cover" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* ── Generate Queue ── */}
+            <GenerateQueue
+              t={t}
+              items={queue}
+              onGenerateAll={startGenerateQueue}
+              onRetry={handleRetryQueueItem}
+              onClear={() => setQueue([])}
+              isGenerating={queueRunning}
+            />
+
+            {/* Initial Generate All button when no queue */}
+            {queue.length === 0 && (
+              <button
+                onClick={startGenerateQueue}
+                className="w-full py-3 bg-tertiary text-neutral rounded-xl font-semibold text-sm hover:bg-[#E5C06A] transition-colors"
+              >
+                🎨 {t.generateAll} ({
+                  selectedBook.characters.filter(c => !c.imageUrl).length +
+                  selectedBook.scenes.filter(s => !s.imageUrl).length +
+                  selectedBook.moments.filter(m => !m.imageUrl).length
+                } {t.assets})
+              </button>
+            )}
+
+            {/* ── Upload More (for text extraction augmentation) ── */}
+            <details className="bg-surface rounded-xl border border-secondary/10">
+              <summary className="p-4 cursor-pointer text-secondary hover:text-primary text-sm transition-colors">
+                📤 {t.uploadBook}
+              </summary>
+              <div className="px-4 pb-4">
+                <BookUpload t={t} onParsed={setParsedText} />
+                {parsedText && !extracting && (
+                  <div className="mt-3 bg-elevated rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm text-success font-medium">{t.parseDone}: {parsedText.fileName}</p>
+                      <button onClick={() => setParsedText(null)} className="text-muted hover:text-secondary text-xs">{t.close}</button>
+                    </div>
+                    <button onClick={handleExtract} disabled={extracting}
+                      className="px-4 py-2 bg-tertiary text-neutral rounded-lg font-semibold text-sm hover:bg-[#E5C06A] transition-colors disabled:opacity-50">
+                      {extracting ? `${t.extracting} (${extractProgress})` : t.extractBtn}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </details>
+
+            {/* ── Knowledge source indicator ── */}
+            <div className="flex items-center gap-2 text-xs text-muted">
+              <span>{t.sourceNotes}:</span>
+              <span className="px-2 py-0.5 bg-elevated rounded-full">
+                {selectedBook.knowledgeSource === "llm" ? t.sourceLLM : t.sourceExtract}
+              </span>
+            </div>
+
+            {/* ── Export ── */}
+            <ExportPack t={t} book={selectedBook} />
+
+            {/* ── Re-extract with AI knowledge ── */}
+            {selectedBook.knowledgeSource === "text-extraction" && (
+              <button
+                onClick={handleKnowledge}
+                disabled={knowing}
+                className="w-full py-2.5 bg-elevated text-secondary hover:text-primary rounded-xl text-sm border border-secondary/10 transition-colors disabled:opacity-50"
+              >
+                {knowing ? t.knowing : "🔄 " + t.knowBtn}
+              </button>
+            )}
+          </>
+        )}
       </main>
-
-      {showAddAsset && (
-        <Modal onClose={() => setShowAddAsset(null)} title={assetTypeLabels[showAddAsset][lang]}>
-          <form onSubmit={handleAddAsset} className="space-y-4">
-            <Input label={t.name_} name="label" placeholder={getPlaceholders(lang)[showAddAsset].label} required autoFocus />
-            <div>
-              <label className="block text-secondary text-xs font-semibold uppercase tracking-wider mb-1.5">{t.description}</label>
-              <textarea name="description" rows={4} required placeholder={getPlaceholders(lang)[showAddAsset].description}
-                className="w-full bg-elevated text-primary rounded-xl px-4 py-3 text-sm resize-none placeholder:text-muted/50 border border-secondary/10 focus:border-tertiary focus:outline-none transition-colors" />
-            </div>
-            <div>
-              <label className="block text-secondary text-xs font-semibold uppercase tracking-wider mb-1.5">{t.style}</label>
-              <select name="style" defaultValue="illustrated"
-                className="w-full bg-elevated text-primary rounded-xl px-4 py-3 text-sm border border-secondary/10 focus:border-tertiary focus:outline-none transition-colors">
-                <option value="illustrated">{t.illustrated}</option>
-                <option value="realistic">{t.realistic}</option>
-                <option value="line-art">{t.lineArt}</option>
-                <option value="pixel">{t.pixel}</option>
-              </select>
-            </div>
-            <SubmitButton>{t.saveGenerate}</SubmitButton>
-          </form>
-        </Modal>
-      )}
     </div>
   );
 }
 
 // ── Shared Components ──
-
 function Modal({ onClose, title, children }: { onClose: () => void; title: string; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
@@ -341,91 +544,4 @@ function Input({ label, name, placeholder, required, autoFocus }: {
 
 function SubmitButton({ children }: { children: React.ReactNode }) {
   return <button type="submit" className="w-full py-3 bg-tertiary text-neutral rounded-xl font-semibold text-sm hover:bg-[#E5C06A] transition-colors">{children}</button>;
-}
-
-function AssetSection({ title, desc, type, assets, generating, onAdd, onDelete, t }: {
-  title: string; desc: string; type: AssetType; assets: VisualAsset[]; generating: string | null;
-  onAdd: () => void; onDelete: (id: string) => void; t: TranslationDict;
-}) {
-  return (
-    <section>
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h2 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary">{title}</h2>
-          <p className="text-muted text-xs">{desc}</p>
-        </div>
-        <button onClick={onAdd} className="px-3 py-1.5 bg-elevated text-secondary hover:text-primary rounded-lg text-sm transition-colors border border-secondary/10">+ Add</button>
-      </div>
-      {assets.length === 0 ? (
-        <p className="text-muted text-sm italic py-4 text-center bg-surface rounded-xl border border-secondary/10">{t.noAssets}</p>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {assets.map(asset => (
-            <AssetCard key={asset.id} asset={asset} isGenerating={generating === asset.id} onDelete={() => onDelete(asset.id)} t={t} />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function AssetCard({ asset, isGenerating, onDelete, t }: {
-  asset: VisualAsset; isGenerating: boolean; onDelete: () => void;
-  t: TranslationDict;
-}) {
-  return (
-    <div className="bg-surface rounded-xl overflow-hidden border border-secondary/10 group">
-      <div className="aspect-square bg-elevated flex items-center justify-center relative">
-        {isGenerating ? (
-          <div className="animate-amber-pulse w-full h-full flex items-center justify-center">
-            <div className="text-center">
-              <div className="w-8 h-8 border-2 border-tertiary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-              <p className="text-muted text-xs">{t.generating}</p>
-            </div>
-          </div>
-        ) : asset.imageUrl ? (
-          <>
-            <img src={asset.imageUrl} alt={asset.label} className="w-full h-full object-cover" />
-            <button onClick={onDelete}
-              className="absolute top-1 right-1 p-1 bg-neutral/80 text-muted hover:text-danger rounded-lg opacity-0 group-hover:opacity-100 transition-opacity text-xs">×</button>
-          </>
-        ) : (
-          <p className="text-muted text-xs text-center p-4">{t.noImage}</p>
-        )}
-      </div>
-      <div className="p-2.5">
-        <p className="text-primary text-xs font-medium truncate">{asset.label}</p>
-        <p className="text-muted text-[10px] truncate">{asset.style}</p>
-      </div>
-    </div>
-  );
-}
-
-const assetTypeLabels: Record<AssetType, Record<Lang, string>> = {
-  character: { zh: "添加人物", en: "Add Character" },
-  "scene-map": { zh: "添加场景", en: "Add Scene Map" },
-  "key-moment": { zh: "添加情节", en: "Add Key Moment" },
-};
-
-function getPlaceholders(lang: Lang): Record<AssetType, { label: string; description: string }> {
-  return {
-    character: {
-      label: "e.g. 林黛玉 / Sherlock Holmes",
-      description: lang === "zh"
-        ? "粘贴书中的人物描写。例如：「两弯似蹙非蹙笼烟眉，一双似喜非喜含情目…」"
-        : "Paste the character description from the book."
-    },
-    "scene-map": {
-      label: "e.g. 大观园全景 / Hogwarts Great Hall",
-      description: lang === "zh"
-        ? "粘贴场景空间描写。例如：「贾府分为宁国府和荣国府，大观园位于两府之间…」"
-        : "Paste the spatial description from the book."
-    },
-    "key-moment": {
-      label: "e.g. 黛玉葬花 / The Final Battle",
-      description: lang === "zh"
-        ? "粘贴情节段落。例如：「黛玉肩上担着花锄，锄上挂着花囊…」"
-        : "Paste the plot paragraph from the book."
-    },
-  };
 }

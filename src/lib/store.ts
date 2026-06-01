@@ -1,7 +1,8 @@
-import type { Book, VisualAsset } from "./types";
+import type { Book } from "./types";
+import type { LegacyBook } from "./types";
 
 const DB_NAME = "mira-library";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -11,19 +12,25 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("books")) {
         db.createObjectStore("books", { keyPath: "id" });
       }
+      // v2: no schema change needed (IndexedDB is schemaless for objects),
+      // but we bump version to signal migration opportunity
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
 
+// ── CRUD ──
 export async function getBooks(): Promise<Book[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction("books", "readonly");
     const store = tx.objectStore("books");
     const req = store.getAll();
-    req.onsuccess = () => resolve(req.result.sort((a, b) => b.createdAt - a.createdAt));
+    req.onsuccess = () => {
+      const all = req.result.map(migrateIfLegacy);
+      resolve(all.sort((a, b) => b.createdAt - a.createdAt));
+    };
     req.onerror = () => reject(req.error);
   });
 }
@@ -34,7 +41,7 @@ export async function getBook(id: string): Promise<Book | undefined> {
     const tx = db.transaction("books", "readonly");
     const store = tx.objectStore("books");
     const req = store.get(id);
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => resolve(req.result ? migrateIfLegacy(req.result) : undefined);
     req.onerror = () => reject(req.error);
   });
 }
@@ -61,6 +68,7 @@ export async function deleteBook(id: string): Promise<void> {
   });
 }
 
+// ── Helpers ──
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
@@ -70,24 +78,29 @@ export function createBook(title: string, author: string): Book {
     id: generateId(),
     title,
     author,
-    assets: [],
+    characters: [],
+    scenes: [],
+    moments: [],
+    knowledgeSource: "text-extraction",
     createdAt: Date.now(),
   };
 }
 
-export function createAsset(
-  type: VisualAsset["type"],
-  label: string,
-  description: string,
-  style: VisualAsset["style"] = "illustrated"
-): VisualAsset {
+// ── Migration: legacy VisualAsset-based Book → new Card-based Book ──
+function migrateIfLegacy(raw: unknown): Book {
+  const r = raw as Record<string, unknown>;
+  // Already v2
+  if (r.characters !== undefined && r.scenes !== undefined) return raw as Book;
+  // Legacy
+  const legacy = raw as LegacyBook;
   return {
-    id: generateId(),
-    type,
-    label,
-    description,
-    style,
-    imageUrl: null,
-    createdAt: Date.now(),
+    id: legacy.id,
+    title: legacy.title,
+    author: legacy.author,
+    characters: [],
+    scenes: [],
+    moments: [],
+    knowledgeSource: "text-extraction",
+    createdAt: legacy.createdAt,
   };
 }

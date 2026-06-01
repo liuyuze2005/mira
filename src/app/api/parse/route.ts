@@ -32,21 +32,30 @@ export async function POST(req: NextRequest) {
         .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
         .replace(/&#?\w+;/g, "").replace(/\s+/g, " ").replace(/\n\s*\n/g, "\n\n").trim();
     } else if (ext === "pdf") {
-      return NextResponse.json({ error: "PDF parsing requires pdf-parse. Install with: npm install pdf-parse" }, { status: 400 });
+      try {
+        const pdfParse = require("pdf-parse");
+        const data = await pdfParse(buffer);
+        text = data.text;
+      } catch {
+        return NextResponse.json({ error: "PDF parsing failed. Ensure pdf-parse is installed: npm install pdf-parse" }, { status: 400 });
+      }
     } else {
       return NextResponse.json({ error: `Unsupported format: .${ext}` }, { status: 400 });
     }
 
     if (!text.trim()) {
-      return NextResponse.json({ error: "No text could be extracted." }, { status: 400 });
+      return NextResponse.json({ error: "No text could be extracted from this file." }, { status: 400 });
     }
 
     const maxChars = 200_000;
     const truncated = text.length > maxChars ? text.slice(0, maxChars) + "\n\n[... content truncated ...]" : text;
 
     return NextResponse.json({
-      text: truncated, fullLength: text.length, truncated: text.length > maxChars,
-      fileName: file.name, format: ext,
+      text: truncated,
+      fullLength: text.length,
+      truncated: text.length > maxChars,
+      fileName: file.name,
+      format: ext,
     });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
