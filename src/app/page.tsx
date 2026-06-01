@@ -16,6 +16,7 @@ import ExportPack from "@/components/ExportPack";
 import ChapterList from "@/components/ChapterList";
 import BookOverview from "@/components/BookOverview";
 import MapView from "@/components/MapView";
+import ReaderView from "@/components/ReaderView";
 import type { MapGraph } from "@/lib/types";
 
 interface ParseResult { text: string; fullLength: number; truncated: boolean; fileName: string; format: string; }
@@ -180,6 +181,56 @@ export default function Home() {
     const updated = { ...selectedBook, moments: selectedBook.moments.filter(m => m.id !== id) };
     await saveBook(updated);
     setSelectedBook(updated);
+  };
+
+  // ── Ask Mira ──
+  const [recapModal, setRecapModal] = useState<{
+    summary: string; recentCharacters: string[]; currentLocation: string;
+    unresolvedQuestions: string[]; visualCues: string[];
+  } | null>(null);
+
+  const handleAsk = async (question: string, selection: string) => {
+    const chapter = selectedBook?.chapters.find(c => c.index === selectedBook.currentChapter);
+    const res = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question, selection,
+        bookTitle: selectedBook?.title,
+        bookAuthor: selectedBook?.author,
+        chapterTitle: chapter?.title,
+        currentChapter: selectedBook?.currentChapter,
+        characters: selectedBook?.characters || [],
+        scenes: selectedBook?.scenes || [],
+        language: lang,
+      }),
+    });
+    return res.json();
+  };
+
+  const handleRecap = async () => {
+    if (!selectedBook) return;
+    try {
+      const readChapters = selectedBook.chapters
+        .filter(c => c.kind === "body" && c.index <= (selectedBook.currentChapter || 1))
+        .map(c => ({ title: c.title, text: c.text }));
+      const res = await fetch("/api/recap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookTitle: selectedBook.title,
+          bookAuthor: selectedBook.author,
+          currentChapter: selectedBook.currentChapter,
+          chaptersRead: readChapters,
+          characters: selectedBook.characters || [],
+          scenes: selectedBook.scenes || [],
+          moments: selectedBook.moments || [],
+          language: lang,
+        }),
+      });
+      const data = await res.json();
+      setRecapModal(data);
+    } catch (e) { alert(String(e)); }
   };
 
   // ── Book Actions ──
@@ -424,6 +475,26 @@ export default function Home() {
               {/* Prompt Editor */}
               <PromptEditor t={t} onApply={handleSaveProfile} />
 
+              {/* ── Reader View ── */}
+              {selectedBook.currentChapter > 0 && (() => {
+                const chapter = selectedBook.chapters.find(c => c.index === selectedBook.currentChapter);
+                if (!chapter) return null;
+                return (
+                  <ReaderView
+                    t={t}
+                    chapter={chapter}
+                    bookTitle={selectedBook.title}
+                    bookAuthor={selectedBook.author}
+                    characters={selectedBook.characters}
+                    scenes={selectedBook.scenes}
+                    moments={selectedBook.moments}
+                    currentChapter={selectedBook.currentChapter}
+                    onAsk={handleAsk}
+                    onRecap={handleRecap}
+                  />
+                );
+              })()}
+
               {/* Cards */}
               {hasContent && (
                 <>
@@ -500,6 +571,54 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {/* Recap Modal */}
+      {recapModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-neutral/80 backdrop-blur-sm" onClick={() => setRecapModal(null)} />
+          <div className="relative bg-surface rounded-2xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto border border-secondary/10 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-[family-name:var(--font-serif)] text-xl font-semibold text-primary">📺 继续阅读前回顾</h2>
+              <button onClick={() => setRecapModal(null)} className="text-muted hover:text-primary text-lg">✕</button>
+            </div>
+            <p className="text-primary text-sm leading-relaxed">{recapModal.summary}</p>
+
+            {recapModal.recentCharacters?.length > 0 && (
+              <div>
+                <p className="text-secondary text-xs font-semibold uppercase tracking-wider mb-1">上次出现的人物</p>
+                <ul className="space-y-1 text-sm text-primary/80">
+                  {recapModal.recentCharacters.map((c, i) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {recapModal.currentLocation && (
+              <div>
+                <p className="text-secondary text-xs font-semibold uppercase tracking-wider mb-1">当前地点</p>
+                <p className="text-sm text-primary/80">{recapModal.currentLocation}</p>
+              </div>
+            )}
+
+            {recapModal.unresolvedQuestions?.length > 0 && (
+              <div>
+                <p className="text-secondary text-xs font-semibold uppercase tracking-wider mb-1">未解决的问题</p>
+                <ul className="space-y-1 text-sm text-amber-400/80">
+                  {recapModal.unresolvedQuestions.map((q, i) => <li key={i}>？{q}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {recapModal.visualCues?.length > 0 && (
+              <div>
+                <p className="text-secondary text-xs font-semibold uppercase tracking-wider mb-1">👁 值得注意的视觉线索</p>
+                <ul className="space-y-1 text-sm text-primary/80">
+                  {recapModal.visualCues.map((c, i) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
