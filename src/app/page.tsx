@@ -5,7 +5,6 @@ import type { Book, CharacterCard, SceneCard, MomentCard, BookProfile, BookConce
 import { getBooks, saveBook, deleteBook, createBook, getBook } from "@/lib/store";
 import { filterByChapter, buildCharacterPrompt, buildScenePrompt, buildMomentPrompt } from "@/lib/extractor";
 import { Lang, getSystemLang, translations, TranslationDict } from "@/lib/i18n";
-import { createDemoBook } from "@/lib/demo";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import BookUpload from "@/components/BookUpload";
 import CharacterCardComp from "@/components/CharacterCard";
@@ -35,7 +34,6 @@ export default function Home() {
   const [knowing, setKnowing] = useState(false);
 
   // Upload → Parse → Chapters
-  const [parsedText, setParsedText] = useState<ParseResult | null>(null);
   const [parsingChapters, setParsingChapters] = useState(false);
   const [extractedChapters, setExtractedChapters] = useState<Set<number>>(new Set());
   const [extractingChapter, setExtractingChapter] = useState<number | null>(null);
@@ -51,23 +49,12 @@ export default function Home() {
   // Style
   const [globalStyle, setGlobalStyle] = useState<BookProfile["style"]>();
 
-  // ── Init: load books or auto-create demo ──
+  // ── Init: load books ──
   useEffect(() => {
     setLang(getSystemLang());
     getBooks().then(async bs => {
-      let list = bs;
-      const hasAnyBodyChapters = list.some(b => b.chapters?.some(c => c.kind === "body"));
-      // If no books, or all books lack body chapters → auto-create demo
-      if (list.length === 0 || !hasAnyBodyChapters) {
-        const demo = createDemoBook();
-        await saveBook(demo);
-        list = [demo];
-      }
+      const list = bs;
       setBooks(list);
-      // Auto-select first book on initial mount
-      if (list.length > 0) {
-        setSelectedBook(list[0]);
-      }
       // Build extractedChapters set
       list.forEach(b => {
         if (b.chapters?.length > 0) {
@@ -110,20 +97,25 @@ export default function Home() {
     } catch (e) { alert(String(e)); } finally { setGeneratingOverview(false); }
   };
 
-  // ── Parse Chapters ──
-  const handleParseChapters = async () => {
-    if (!parsedText || !selectedBook) return;
+  // ── Upload → auto-parse chapters → show reader ──
+  const handleParsed = useCallback(async (result: ParseResult) => {
+    setShowUpload(false);
+    if (!selectedBook) return;
     setParsingChapters(true);
     try {
-      const res = await fetch("/api/chapters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: parsedText.text }) });
+      const res = await fetch("/api/chapters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: result.text }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       const chapters: ChapterSection[] = data.chapters || [];
-      const updated = { ...selectedBook, chapters, rawText: parsedText.text };
+      const firstBody = chapters.find((c: ChapterSection) => c.kind === "body");
+      // Re-read selectedBook from store to get latest version
+      const current = await getBook(selectedBook.id);
+      if (!current) return;
+      const updated = { ...current, chapters, rawText: result.text, currentChapter: firstBody ? firstBody.index : current.currentChapter };
       await saveBook(updated);
       setSelectedBook(updated);
     } catch (e) { alert(String(e)); } finally { setParsingChapters(false); }
-  };
+  }, [selectedBook]);
 
   // ── Extract One Chapter ──
   const handleExtractChapter = async (chapterIndex: number) => {
@@ -155,12 +147,6 @@ export default function Home() {
     await saveBook(updated);
     setSelectedBook(updated);
   };
-
-  // ── Upload callback ──
-  const handleParsed = useCallback((result: ParseResult) => {
-    setParsedText(result);
-    setShowUpload(false);
-  }, []);
 
   // ── Generate Map ──
   const [generatingMap, setGeneratingMap] = useState(false);
@@ -399,13 +385,9 @@ export default function Home() {
         {showUpload && (
           <div className="max-w-[1600px] mx-auto mt-3 p-4 bg-surface rounded-xl border border-secondary/10">
             <BookUpload t={t} onParsed={handleParsed} />
-            {parsedText && (
-              <div className="mt-3 p-3 bg-elevated rounded-lg flex items-center justify-between">
-                <span className="text-sm text-success font-medium">{t.parseDone}: {parsedText.fileName}</span>
-                <button onClick={handleParseChapters} disabled={parsingChapters}
-                  className="px-4 py-1.5 bg-tertiary text-neutral rounded-lg text-sm font-semibold hover:bg-[#E5C06A] transition-colors disabled:opacity-50">
-                  {parsingChapters ? t.parsingChapters : `📑 ${t.parseChapters}`}
-                </button>
+            {parsingChapters && (
+              <div className="mt-3 p-3 bg-elevated rounded-lg text-center">
+                <span className="text-secondary text-sm">⏳ {t.parsingChapters}</span>
               </div>
             )}
           </div>
