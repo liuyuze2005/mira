@@ -6,7 +6,7 @@ import { getBooks, saveBook, deleteBook, createBook, getBook } from "@/lib/store
 import { filterByChapter, buildCharacterPrompt, buildScenePrompt, buildMomentPrompt } from "@/lib/extractor";
 import { Lang, getSystemLang, translations, TranslationDict } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import BookUpload from "@/components/BookUpload";
+import BookUpload, { type EpubResult } from "@/components/BookUpload";
 import CharacterCardComp from "@/components/CharacterCard";
 import SceneCardComp from "@/components/SceneCard";
 import SpoilerGate from "@/components/SpoilerGate";
@@ -19,7 +19,6 @@ import MapView from "@/components/MapView";
 import ReaderView from "@/components/ReaderView";
 import type { MapGraph } from "@/lib/types";
 
-interface ParseResult { text: string; fullLength: number; truncated: boolean; fileName: string; format: string; }
 interface QueueItem { id: string; label: string; status: "queued" | "generating" | "done" | "failed"; }
 
 export default function Home() {
@@ -34,7 +33,6 @@ export default function Home() {
   const [knowing, setKnowing] = useState(false);
 
   // Upload → Parse → Chapters
-  const [parsingChapters, setParsingChapters] = useState(false);
   const [extractedChapters, setExtractedChapters] = useState<Set<number>>(new Set());
   const [extractingChapter, setExtractingChapter] = useState<number | null>(null);
 
@@ -97,24 +95,23 @@ export default function Home() {
     } catch (e) { alert(String(e)); } finally { setGeneratingOverview(false); }
   };
 
-  // ── Upload → auto-parse chapters → show reader ──
-  const handleParsed = useCallback(async (result: ParseResult) => {
+  // ── Upload → directly save chapters (browser-side EPUB parse) ──
+  const handleParsed = useCallback(async (result: EpubResult) => {
     setShowUpload(false);
     if (!selectedBook) return;
-    setParsingChapters(true);
-    try {
-      const res = await fetch("/api/chapters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: result.text }) });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      const chapters: ChapterSection[] = data.chapters || [];
-      const firstBody = chapters.find((c: ChapterSection) => c.kind === "body");
-      // Re-read selectedBook from store to get latest version
-      const current = await getBook(selectedBook.id);
-      if (!current) return;
-      const updated = { ...current, chapters, rawText: result.text, currentChapter: firstBody ? firstBody.index : current.currentChapter };
-      await saveBook(updated);
-      setSelectedBook(updated);
-    } catch (e) { alert(String(e)); } finally { setParsingChapters(false); }
+
+    const current = await getBook(selectedBook.id);
+    if (!current) return;
+
+    const firstBody = result.chapters[0];  // first chapter
+    const updated = {
+      ...current,
+      chapters: result.chapters,
+      rawText: result.rawText,
+      currentChapter: firstBody ? firstBody.index : current.currentChapter,
+    };
+    await saveBook(updated);
+    setSelectedBook(updated);
   }, [selectedBook]);
 
   // ── Extract One Chapter ──
@@ -385,11 +382,6 @@ export default function Home() {
         {showUpload && (
           <div className="max-w-[1600px] mx-auto mt-3 p-4 bg-surface rounded-xl border border-secondary/10">
             <BookUpload t={t} onParsed={handleParsed} />
-            {parsingChapters && (
-              <div className="mt-3 p-3 bg-elevated rounded-lg text-center">
-                <span className="text-secondary text-sm">⏳ {t.parsingChapters}</span>
-              </div>
-            )}
           </div>
         )}
       </header>
