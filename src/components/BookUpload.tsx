@@ -160,12 +160,25 @@ async function parseEpub(
     if (idref) spineIds.push(idref);
   });
 
-  // 3. Parse NCX for chapter titles
+  // 3. Parse NCX for chapter titles and valid sources
   onProgress("读取目录…");
   const ncxHref = findNcxPath(opfDoc, manifest, opfDir);
-  const tocMap = ncxHref ? await parseNcx(zip, ncxHref, opfDir) : new Map<number, string>();
+  const ncxData = ncxHref ? await parseNcx(zip, ncxHref, opfDir) : { titles: new Map<number, string>(), validSources: new Set<string>() };
+  const tocMap = ncxData.titles;
+  const validSources = ncxData.validSources;
 
-  // 4. Read spine items in order, extract text
+  // Helper: check if a spine href matches any NCX content source
+  const hrefInNcx = (href: string) => {
+    if (validSources.size === 0) return true; // no NCX → accept all
+    const clean = href.split("#")[0];
+    // Check if any valid source ends with this href, or href ends with valid source
+    for (const src of validSources) {
+      if (clean.endsWith(src) || src.endsWith(clean) || clean === src) return true;
+    }
+    return false;
+  };
+
+  // 4. Read spine items in order, extract text (only NCX chapters)
   onProgress("提取章节…");
   const chapters: ChapterSection[] = [];
   const allTexts: string[] = [];
@@ -175,13 +188,15 @@ async function parseEpub(
   for (const idref of spineIds) {
     const href = manifest.get(idref);
     if (!href) continue;
+    // Skip spine items not referenced by NCX (covers, copyright, etc.)
+    if (!hrefInNcx(href)) continue;
     const fullPath = findZipFile(zip, opfDir, href);
     if (!fullPath) continue;
     const entry = zip.file(fullPath);
     if (!entry) continue;
     const html = await entry.async("text");
     const text = htmlToText(html);
-    if (text.trim().length < 50) continue; // skip tiny fragments
+    if (text.trim().length < 50) continue;
 
     chapterIndex++;
     const chapterTitle = tocMap.get(chapterIndex) || `第${chapterIndex}章`;
@@ -279,21 +294,24 @@ async function parseNcx(
   zip: any,
   ncxPath: string,
   opfDir: string,
-): Promise<Map<number, string>> {
-  const toc = new Map<number, string>();
+): Promise<{ titles: Map<number, string>; validSources: Set<string> }> {
+  const titles = new Map<number, string>();
+  const validSources = new Set<string>();
   try {
     const entry = zip.file(ncxPath);
-    if (!entry) return toc;
+    if (!entry) return { titles, validSources };
     const xml = await entry.async("text");
     const doc = new DOMParser().parseFromString(xml, "text/xml");
     let idx = 0;
     doc.querySelectorAll("navPoint").forEach(np => {
       idx++;
       const label = np.querySelector("navLabel text")?.textContent?.trim();
-      if (label) toc.set(idx, label);
+      const src = np.querySelector("content")?.getAttribute("src")?.split("#")[0] || "";
+      if (label) titles.set(idx, label);
+      if (src) validSources.add(src);
     });
   } catch { /* NCX optional */ }
-  return toc;
+  return { titles, validSources };
 }
 
 function htmlToText(html: string): string {

@@ -49,12 +49,18 @@ export default function EpubReader({ epubBuffer, onLocationChange }: Props) {
         }
       });
 
-      // Generate locations (needed for progress)
-      await book.ready;
-      await book.locations.generate(1000);
+      // Generate locations (needed for progress) — optional, skip on failure
+      try {
+        await book.ready;
+        await book.locations.generate(1000);
+      } catch { /* locations optional */ }
 
-      const displayed = rendition.display();
-      await displayed;
+      try {
+        const displayed = rendition.display();
+        await displayed;
+      } catch (e) {
+        console.error("epub.js display failed:", e);
+      }
 
       if (!cancelled) setReady(true);
     };
