@@ -27,7 +27,11 @@ export default function Home() {
     try {
       const res = await fetch("/api/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: parsedText.text }) });
       const data = await res.json();
-      setExtracted(data);
+      setExtracted({
+        characters: data.characters || [],
+        scenes: data.scenes || [],
+        moments: data.moments || [],
+      });
     } catch {} finally { setExtracting(false); }
   };
 

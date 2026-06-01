@@ -63,7 +63,11 @@ ${inputText}`;
     // Parse the JSON (handle markdown code fences)
     const json = JSON.parse(content.replace(/```json\s*|\s*```/g, "").trim());
 
-    return NextResponse.json(json);
+    return NextResponse.json({
+      characters: json.characters || [],
+      scenes: json.scenes || [],
+      moments: json.moments || [],
+    });
   } catch (err: unknown) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
