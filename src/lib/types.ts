@@ -78,6 +78,29 @@ export interface BookConcept {
   themes: string[];       // e.g. ["成长", "阶级", "命运"]
 }
 
+// ── Map / Spatial Graph ──
+export interface MapNode {
+  id: string;
+  name: string;
+  type: string;        // e.g. "建筑", "庭院", "房间", "路径"
+  relativePosition: string;
+  position: { x: number; y: number };  // 0-100 percentage
+}
+
+export interface MapEdge {
+  from: string;
+  to: string;
+  label: string;       // e.g. "走廊", "门", "台阶"
+}
+
+export interface MapGraph {
+  id: string;
+  name: string;
+  nodes: MapNode[];
+  edges: MapEdge[];
+  chapterHighlights: string[];  // node IDs highlighted in current chapter
+}
+
 // ── Book Profile ──
 export interface BookProfile {
   totalChapters: number;
@@ -108,6 +131,8 @@ export interface Book {
   characters: CharacterCard[];
   scenes: SceneCard[];
   moments: MomentCard[];
+  // Map
+  mapGraph?: MapGraph;
   // Metadata
   profile?: BookProfile;
   knowledgeSource: KnowledgeSource;

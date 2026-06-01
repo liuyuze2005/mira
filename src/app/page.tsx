@@ -15,6 +15,8 @@ import GenerateQueue from "@/components/GenerateQueue";
 import ExportPack from "@/components/ExportPack";
 import ChapterList from "@/components/ChapterList";
 import BookOverview from "@/components/BookOverview";
+import MapView from "@/components/MapView";
+import type { MapGraph } from "@/lib/types";
 
 interface ParseResult { text: string; fullLength: number; truncated: boolean; fileName: string; format: string; }
 interface QueueItem { id: string; label: string; status: "queued" | "generating" | "done" | "failed"; }
@@ -137,6 +139,45 @@ export default function Home() {
   const handleSelectChapter = async (chapterIndex: number) => {
     if (!selectedBook) return;
     const updated = { ...selectedBook, currentChapter: chapterIndex };
+    await saveBook(updated);
+    setSelectedBook(updated);
+  };
+
+  // ── Generate Map ──
+  const [generatingMap, setGeneratingMap] = useState(false);
+  const handleGenerateMap = async () => {
+    if (!selectedBook || !selectedBook.chapters?.length) return;
+    setGeneratingMap(true);
+    try {
+      const res = await fetch("/api/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapters: selectedBook.chapters, currentChapter: selectedBook.currentChapter, existingMap: selectedBook.mapGraph }),
+      });
+      const mapGraph: MapGraph = await res.json();
+      if (!mapGraph.nodes) throw new Error("Map generation failed");
+      const updated = { ...selectedBook, mapGraph };
+      await saveBook(updated);
+      setSelectedBook(updated);
+    } catch (e) { alert(String(e)); } finally { setGeneratingMap(false); }
+  };
+
+  // ── Delete single card ──
+  const handleDeleteCharacter = async (id: string) => {
+    if (!selectedBook) return;
+    const updated = { ...selectedBook, characters: selectedBook.characters.filter(c => c.id !== id) };
+    await saveBook(updated);
+    setSelectedBook(updated);
+  };
+  const handleDeleteScene = async (id: string) => {
+    if (!selectedBook) return;
+    const updated = { ...selectedBook, scenes: selectedBook.scenes.filter(s => s.id !== id) };
+    await saveBook(updated);
+    setSelectedBook(updated);
+  };
+  const handleDeleteMoment = async (id: string) => {
+    if (!selectedBook) return;
+    const updated = { ...selectedBook, moments: selectedBook.moments.filter(m => m.id !== id) };
     await saveBook(updated);
     setSelectedBook(updated);
   };
@@ -390,7 +431,7 @@ export default function Home() {
                     <section>
                       <h2 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary mb-3">{t.characterGallery}</h2>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                        {filtered.characters.map(c => <CharacterCardComp key={c.id} card={c} t={t} isGenerating={generatingSingle === c.id} onGenerate={handleGenerateSingle} />)}
+                        {filtered.characters.map(c => <CharacterCardComp key={c.id} card={c} t={t} isGenerating={generatingSingle === c.id} onGenerate={handleGenerateSingle} onDelete={handleDeleteCharacter} />)}
                       </div>
                     </section>
                   )}
@@ -398,7 +439,7 @@ export default function Home() {
                     <section>
                       <h2 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary mb-3">{t.sceneGallery}</h2>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {filtered.scenes.map(s => <SceneCardComp key={s.id} card={s} t={t} isGenerating={generatingSingle === s.id} onGenerate={handleGenerateSingle} />)}
+                        {filtered.scenes.map(s => <SceneCardComp key={s.id} card={s} t={t} isGenerating={generatingSingle === s.id} onGenerate={handleGenerateSingle} onDelete={handleDeleteScene} />)}
                       </div>
                     </section>
                   )}
@@ -407,14 +448,28 @@ export default function Home() {
                       <h2 className="font-[family-name:var(--font-serif)] text-lg font-semibold text-primary mb-3">{t.keyMoments}</h2>
                       <div className="space-y-2">
                         {filtered.moments.map(m => (
-                          <div key={m.id} className="bg-surface rounded-xl border border-secondary/10 p-3">
+                          <div key={m.id} className="bg-surface rounded-xl border border-secondary/10 p-3 group relative">
                             <p className="text-primary font-medium text-sm">{m.name}</p>
                             <p className="text-muted text-xs italic mt-1">&ldquo;{m.passage.slice(0, 200)}{m.passage.length > 200 ? "…" : ""}&rdquo;</p>
                             {m.imageUrl && <img src={m.imageUrl} alt={m.name} className="mt-2 rounded-lg max-h-48 object-cover" />}
+                            <button onClick={() => handleDeleteMoment(m.id)} className="absolute top-2 right-2 w-5 h-5 flex items-center justify-center bg-neutral/70 text-muted hover:text-danger rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity">×</button>
                           </div>
                         ))}
                       </div>
                     </section>
+                  )}
+
+                  {/* ── Map ── */}
+                  {selectedBook.mapGraph && selectedBook.mapGraph.nodes.length > 0 && (
+                    <section>
+                      <MapView graph={selectedBook.mapGraph} onUpdate={(g) => { const u = { ...selectedBook, mapGraph: g }; saveBook(u); setSelectedBook(u); }} />
+                    </section>
+                  )}
+                  {!selectedBook.mapGraph && selectedBook.chapters.length > 0 && (
+                    <button onClick={handleGenerateMap} disabled={generatingMap}
+                      className="w-full py-3 bg-elevated text-secondary hover:text-primary rounded-xl text-sm border border-secondary/10 transition-colors disabled:opacity-50">
+                      {generatingMap ? "⏳ 正在生成地图…" : "🗺 生成场景地图"}
+                    </button>
                   )}
 
                   {/* Generate Queue */}

@@ -15,12 +15,14 @@ export default function CharacterCard({
   isSpoilerLocked,
   isGenerating,
   onGenerate,
+  onDelete,
 }: {
   card: CharCard;
   t: TranslationDict;
   isSpoilerLocked?: { locked: boolean; reason: string };
   isGenerating?: boolean;
   onGenerate?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }) {
   if (isSpoilerLocked?.locked) {
     return (
@@ -58,9 +60,18 @@ export default function CharacterCard({
         <span className="absolute top-2 left-2 px-2 py-0.5 bg-neutral/70 backdrop-blur text-secondary text-[10px] rounded-full">
           {roleLabel}
         </span>
+        {/* Delete */}
+        {onDelete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(card.id); }}
+            className="absolute top-2 right-2 w-5 h-5 flex items-center justify-center bg-neutral/70 text-muted hover:text-danger rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            ×
+          </button>
+        )}
         {/* Chapter badge */}
         {card.firstMentionChapter && (
-          <span className="absolute top-2 right-2 px-2 py-0.5 bg-neutral/70 backdrop-blur text-secondary text-[10px] rounded-full">
+          <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-neutral/70 backdrop-blur text-secondary text-[10px] rounded-full">
             Ch.{card.firstMentionChapter}
           </span>
         )}

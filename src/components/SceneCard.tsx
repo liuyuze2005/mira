@@ -8,11 +8,13 @@ export default function SceneCard({
   t,
   isGenerating,
   onGenerate,
+  onDelete,
 }: {
   card: ScnCard;
   t: TranslationDict;
   isGenerating?: boolean;
   onGenerate?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }) {
   const typeLabel = card.type === "spatial-layout" ? t.spatialLayout : t.atmosphere;
   const typeIcon = card.type === "spatial-layout" ? "🗺" : "🌄";
@@ -39,6 +41,15 @@ export default function SceneCard({
         <span className="absolute top-2 left-2 px-2 py-0.5 bg-neutral/70 backdrop-blur text-secondary text-[10px] rounded-full">
           {typeIcon} {typeLabel}
         </span>
+        {/* Delete */}
+        {onDelete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(card.id); }}
+            className="absolute top-2 right-2 w-5 h-5 flex items-center justify-center bg-neutral/70 text-muted hover:text-danger rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            ×
+          </button>
+        )}
         {/* Regenerate */}
         {card.imageUrl && onGenerate && (
           <button
