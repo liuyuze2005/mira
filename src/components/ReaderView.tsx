@@ -71,11 +71,11 @@ export default function ReaderView({
     const el = pageRef.current;
     if (!el || paragraphs.length === 0) return [0];
 
-    const pageHeight = el.clientHeight - 48;
+    const pageHeight = Math.max(200, el.clientHeight - 48);
     const charWidth = fontSize * 0.6;
-    const containerWidth = el.clientWidth - 64;
-    const charsPerLine = Math.floor(containerWidth / charWidth);
-    const linesPerPage = Math.floor(pageHeight / (fontSize * lineHeight));
+    const containerWidth = Math.max(300, el.clientWidth - 64);
+    const charsPerLine = Math.max(1, Math.floor(containerWidth / charWidth));
+    const linesPerPage = Math.max(1, Math.floor(pageHeight / (fontSize * lineHeight)));
     const charsPerPage = charsPerLine * linesPerPage;
 
     const breaks: number[] = [0];
@@ -93,18 +93,23 @@ export default function ReaderView({
     return breaks;
   }, [paragraphs, fontSize, lineHeight]);
 
-  // Recalculate on chapter/font change
+  // Recalculate after layout is ready
   useEffect(() => {
-    setPageBreaks(computePages());
-    setPageIndex(0);
+    const raf = requestAnimationFrame(() => {
+      setPageBreaks(computePages());
+      setPageIndex(0);
+    });
+    return () => cancelAnimationFrame(raf);
   }, [computePages]);
 
-  // Recalculate on resize (debounced in effect)
+  // Recalculate on resize
   useEffect(() => {
     const el = pageRef.current;
     if (!el) return;
     const obs = new ResizeObserver(() => {
-      setPageBreaks(computePages());
+      requestAnimationFrame(() => {
+        setPageBreaks(computePages());
+      });
     });
     obs.observe(el);
     return () => obs.disconnect();
