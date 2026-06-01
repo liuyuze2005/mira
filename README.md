@@ -53,11 +53,4 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 See [DESIGN.md](DESIGN.md) for the complete design system specification (Google DESIGN.md format).
 
-## Research Basis
 
-- Speed, L. J., Eekhof, L. S., & Mak, M. (2024). The role of visual imagery in story reading: Evidence from aphantasia. *Consciousness and Cognition, 118*, 103645.
-- Cavazos, J. T., et al. (2025). Living and learning with a blind mind's eye: College students with aphantasia. *Frontiers in Psychology, 16*, 1615860.
-
-## License
-
-MIT
