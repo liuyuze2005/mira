@@ -64,9 +64,9 @@ export interface BookProfile {
     period: string;
     colorPalette: string;
     avoid: string[];
+    customPrompt: string;
   };
-  customPrompt?: string;
-}
+};
 
 // ── Knowledge Source ──
 export type KnowledgeSource = "llm" | "text-extraction";

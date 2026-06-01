@@ -11,6 +11,7 @@ const defaultProfile: BookProfile["style"] = {
   period: "",
   colorPalette: "",
   avoid: [],
+  customPrompt: "",
 };
 
 function loadStyle(): BookProfile["style"] {
@@ -100,6 +101,18 @@ export default function PromptEditor({ t, onApply }: Props) {
             onChange={e => setStyle({ ...style, avoid: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })}
             placeholder="e.g. anime, cartoon, realistic humans"
             className="w-full bg-elevated text-primary rounded-lg px-3 py-2 text-sm placeholder:text-muted/50 border border-secondary/10 focus:border-tertiary focus:outline-none"
+          />
+        </div>
+
+        {/* Custom Prompt */}
+        <div>
+          <label className="block text-secondary text-xs font-semibold uppercase tracking-wider mb-1.5">{t.customPrompt}</label>
+          <textarea
+            value={style.customPrompt}
+            onChange={e => setStyle({ ...style, customPrompt: e.target.value })}
+            placeholder={t.customPromptDesc || "附加到每张图提示词末尾的文本，例如：\"水墨画风格，留白构图\""}
+            rows={3}
+            className="w-full bg-elevated text-primary rounded-lg px-3 py-2 text-sm placeholder:text-muted/50 border border-secondary/10 focus:border-tertiary focus:outline-none resize-none"
           />
         </div>
 

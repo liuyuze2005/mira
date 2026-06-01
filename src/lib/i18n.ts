@@ -75,6 +75,7 @@ export interface TranslationDict {
   colorPalette: string;
   avoidPrompt: string;
   customPrompt: string;
+  customPromptDesc: string;
   saveStyle: string;
   styleSaved: string;
   resetStyle: string;
@@ -89,6 +90,7 @@ export interface TranslationDict {
   lineArt: string;
   pixel: string;
   saveGenerate: string;
+  generate: string;
   noImage: string;
   noAssets: string;
   styleDesc: Record<string, string>;
@@ -192,6 +194,7 @@ const zh: TranslationDict = {
   colorPalette: "色调",
   avoidPrompt: "避免出现",
   customPrompt: "自定义提示词（高级）",
+  customPromptDesc: "附加到每张图提示词末尾的文本",
   saveStyle: "保存风格设定",
   styleSaved: "风格已保存 ✓",
   resetStyle: "恢复默认",
@@ -206,6 +209,7 @@ const zh: TranslationDict = {
   lineArt: "极简线稿",
   pixel: "像素风",
   saveGenerate: "保存并生成图片",
+  generate: "生成",
   noImage: "暂无图片",
   noAssets: "还没有内容。用 AI 知识提取或导入电子书开始。",
   styleDesc: {
@@ -314,6 +318,7 @@ const en: TranslationDict = {
   colorPalette: "Color Palette",
   avoidPrompt: "Avoid",
   customPrompt: "Custom Prompt (advanced)",
+  customPromptDesc: "Appended to every image generation prompt",
   saveStyle: "Save Style",
   styleSaved: "Style saved ✓",
   resetStyle: "Reset to Default",
@@ -328,6 +333,7 @@ const en: TranslationDict = {
   lineArt: "Minimal Line Art",
   pixel: "Pixel Art",
   saveGenerate: "Save & Generate Image",
+  generate: "Generate",
   noImage: "No image",
   noAssets: "No content yet. Use AI knowledge extraction or import an e-book to start.",
   styleDesc: {

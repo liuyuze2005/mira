@@ -13,10 +13,14 @@ export default function CharacterCard({
   card,
   t,
   isSpoilerLocked,
+  isGenerating,
+  onGenerate,
 }: {
   card: CharCard;
   t: TranslationDict;
   isSpoilerLocked?: { locked: boolean; reason: string };
+  isGenerating?: boolean;
+  onGenerate?: (id: string) => void;
 }) {
   if (isSpoilerLocked?.locked) {
     return (
@@ -37,8 +41,17 @@ export default function CharacterCard({
         {card.imageUrl ? (
           <img src={card.imageUrl} alt={card.name} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2">
             <p className="text-muted text-xs">{t.noImage}</p>
+            {onGenerate && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onGenerate(card.id); }}
+                disabled={isGenerating}
+                className="px-3 py-1.5 bg-tertiary/80 text-neutral rounded-lg text-xs hover:bg-tertiary transition-colors disabled:opacity-40"
+              >
+                {isGenerating ? "⏳" : "🖼"} {t.generate}
+              </button>
+            )}
           </div>
         )}
         {/* Role badge */}
@@ -50,6 +63,16 @@ export default function CharacterCard({
           <span className="absolute top-2 right-2 px-2 py-0.5 bg-neutral/70 backdrop-blur text-secondary text-[10px] rounded-full">
             Ch.{card.firstMentionChapter}
           </span>
+        )}
+        {/* Regenerate overlay */}
+        {card.imageUrl && onGenerate && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onGenerate(card.id); }}
+            disabled={isGenerating}
+            className="absolute bottom-2 right-2 px-2 py-1 bg-neutral/80 text-secondary hover:text-primary rounded-lg text-[10px] opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-40"
+          >
+            {isGenerating ? "⏳" : "🔄"}
+          </button>
         )}
       </div>
 

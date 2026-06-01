@@ -40,6 +40,7 @@ export default function Home() {
   // Queue
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [queueRunning, setQueueRunning] = useState(false);
+  const [generatingSingle, setGeneratingSingle] = useState<string | null>(null);
 
   // Style
   const [globalStyle, setGlobalStyle] = useState<BookProfile["style"]>();
@@ -134,6 +135,49 @@ export default function Home() {
     setBooks(await getBooks());
   };
 
+  // ── Single Generate ──
+  const handleGenerateSingle = async (cardId: string) => {
+    if (!selectedBook || generatingSingle) return;
+    setGeneratingSingle(cardId);
+
+    try {
+      const style = globalStyle || selectedBook.profile?.style;
+      let prompt = "";
+
+      const char = selectedBook.characters.find(c => c.id === cardId);
+      const scn = selectedBook.scenes.find(s => s.id === cardId);
+      const mom = selectedBook.moments.find(m => m.id === cardId);
+
+      if (char) prompt = buildCharacterPrompt(char, style);
+      else if (scn) prompt = buildScenePrompt(scn, style);
+      else if (mom) prompt = buildMomentPrompt(mom, style);
+
+      if (style?.customPrompt) prompt += ` ${style.customPrompt}`;
+
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, style: style?.visualStyle }),
+      });
+      const data = await res.json();
+
+      if (data.imageUrl) {
+        const current = await getBook(selectedBook.id);
+        if (current) {
+          const updateCard = <T extends { id: string; imageUrl?: string }>(cards: T[]): T[] =>
+            cards.map(c => c.id === cardId ? { ...c, imageUrl: data.imageUrl } as T : c);
+          const updated = { ...current, characters: updateCard(current.characters), scenes: updateCard(current.scenes), moments: updateCard(current.moments) };
+          await saveBook(updated);
+          setSelectedBook(updated);
+        }
+      }
+    } catch {
+      // silent
+    } finally {
+      setGeneratingSingle(null);
+    }
+  };
+
   // ── Generate Queue ──
   const startGenerateQueue = async () => {
     if (!selectedBook || queueRunning) return;
@@ -161,6 +205,8 @@ export default function Home() {
         if (char) prompt = buildCharacterPrompt(char, style);
         else if (scn) prompt = buildScenePrompt(scn, style);
         else if (mom) prompt = buildMomentPrompt(mom, style);
+
+        if (style?.customPrompt) prompt += ` ${style.customPrompt}`;
 
         const res = await fetch("/api/generate", {
           method: "POST",
@@ -206,6 +252,8 @@ export default function Home() {
     if (char) prompt = buildCharacterPrompt(char, style);
     else if (scn) prompt = buildScenePrompt(scn, style);
     else if (mom) prompt = buildMomentPrompt(mom, style);
+
+    if (style?.customPrompt) prompt += ` ${style.customPrompt}`;
 
     setQueue(prev => prev.map(i => i.id === id ? { ...i, status: "generating" } : i));
     try {
@@ -389,7 +437,7 @@ export default function Home() {
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {filtered.characters.map(c => (
-                    <CharacterCardComp key={c.id} card={c} t={t} />
+                    <CharacterCardComp key={c.id} card={c} t={t} isGenerating={generatingSingle === c.id} onGenerate={handleGenerateSingle} />
                   ))}
                 </div>
                 {currentChapter > 0 && filtered.characters.length < selectedBook.characters.length && (
@@ -411,7 +459,7 @@ export default function Home() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {filtered.scenes.map(s => (
-                    <SceneCardComp key={s.id} card={s} t={t} />
+                    <SceneCardComp key={s.id} card={s} t={t} isGenerating={generatingSingle === s.id} onGenerate={handleGenerateSingle} />
                   ))}
                 </div>
               </section>
