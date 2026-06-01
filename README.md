@@ -22,8 +22,18 @@ Mira bridges this gap by generating a "visual package" for each book — a set o
 
 - **Next.js 16** (App Router)
 - **Tailwind CSS v4**
-- **IndexedDB** (no backend required)
-- **OpenAI DALL·E 3** (or any OpenAI-compatible image API)
+- **IndexedDB** (no backend required, all data stored locally)
+- **JSZip** (epub parsing)
+- **OpenAI-compatible API** (LLM extraction + image generation)
+
+## Supported Formats
+
+| Format | Parse | Status |
+|--------|-------|--------|
+| TXT | Direct read | ✅ |
+| EPUB | JSZip → XHTML extraction | ✅ |
+| PDF | pdf-parse (optional) | ⚠️ Experimental |
+| Manual paste | User copies text | ✅ |
 
 ## Getting Started
 
