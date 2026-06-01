@@ -17,6 +17,7 @@ import ChapterList from "@/components/ChapterList";
 import BookOverview from "@/components/BookOverview";
 import MapView from "@/components/MapView";
 import ReaderView from "@/components/ReaderView";
+import EpubReader from "@/components/EpubReader";
 import type { MapGraph } from "@/lib/types";
 
 interface QueueItem { id: string; label: string; status: "queued" | "generating" | "done" | "failed"; }
@@ -108,6 +109,7 @@ export default function Home() {
       ...current,
       chapters: result.chapters,
       rawText: result.rawText,
+      epubBuffer: result.epubBuffer,
       currentChapter: firstBody ? firstBody.index : current.currentChapter,
     };
     await saveBook(updated);
@@ -472,23 +474,37 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Reader */}
+              {/* Reader: epub.js for EPUB, legacy for txt/pdf */}
               {currentChapter && (
-                <ReaderView
-                  t={t}
-                  chapter={currentChapter}
-                  bookTitle={selectedBook.title}
-                  bookAuthor={selectedBook.author}
-                  characters={selectedBook.characters}
-                  scenes={selectedBook.scenes}
-                  moments={selectedBook.moments}
-                  currentChapter={selectedBook.currentChapter}
-                  totalChapters={bodyChapters.length}
-                  onAsk={handleAsk}
-                  onRecap={handleRecap}
-                  onPrevChapter={handlePrevChapter}
-                  onNextChapter={handleNextChapter}
-                />
+                selectedBook.epubBuffer ? (
+                  <EpubReader
+                    epubBuffer={selectedBook.epubBuffer}
+                    onLocationChange={(_cfi, progress) => {
+                      // Map epub.js progress to chapter
+                      const idx = Math.floor(progress * bodyChapters.length) + 1;
+                      const target = bodyChapters.find(c => c.index === idx) || bodyChapters[Math.min(idx - 1, bodyChapters.length - 1)];
+                      if (target && target.index !== selectedBook.currentChapter) {
+                        handleSelectChapter(target.index);
+                      }
+                    }}
+                  />
+                ) : (
+                  <ReaderView
+                    t={t}
+                    chapter={currentChapter}
+                    bookTitle={selectedBook.title}
+                    bookAuthor={selectedBook.author}
+                    characters={selectedBook.characters}
+                    scenes={selectedBook.scenes}
+                    moments={selectedBook.moments}
+                    currentChapter={selectedBook.currentChapter}
+                    totalChapters={bodyChapters.length}
+                    onAsk={handleAsk}
+                    onRecap={handleRecap}
+                    onPrevChapter={handlePrevChapter}
+                    onNextChapter={handleNextChapter}
+                  />
+                )
               )}
 
               {/* Cards section */}

@@ -8,6 +8,7 @@ export interface EpubResult {
   chapters: ChapterSection[];
   rawText: string;
   fileName: string;
+  epubBuffer?: ArrayBuffer;  // raw EPUB for epub.js
 }
 
 interface Props {
@@ -30,7 +31,8 @@ export default function BookUpload({ t, onParsed }: Props) {
       const ext = file.name.split(".").pop()?.toLowerCase() || "";
 
       if (ext === "epub") {
-        const result = await parseEpub(file, setProgress);
+        const buffer = await file.arrayBuffer();
+        const result = await parseEpub(buffer, file.name, setProgress);
         onParsed(result);
       } else if (ext === "txt") {
         const text = await file.text();
@@ -114,12 +116,13 @@ export default function BookUpload({ t, onParsed }: Props) {
 
 // ── EPUB Parser (browser-side, JSZip) ──
 async function parseEpub(
-  file: File,
+  buffer: ArrayBuffer,
+  fileName: string,
   onProgress: (msg: string) => void,
 ): Promise<EpubResult> {
   const JSZip = (await import("jszip")).default;
   onProgress("解压 EPUB…");
-  const zip = await JSZip.loadAsync(file);
+  const zip = await JSZip.loadAsync(buffer);
 
   // 1. Find container.xml
   const containerFile = zip.file("META-INF/container.xml");
@@ -139,7 +142,7 @@ async function parseEpub(
   const opfDoc = parser.parseFromString(opfXml, "text/xml");
 
   // Metadata
-  const title = opfDoc.querySelector("dc\\:title, title")?.textContent?.trim() || file.name;
+  const title = opfDoc.querySelector("dc\\:title, title")?.textContent?.trim() || fileName;
   const author = opfDoc.querySelector("dc\\:creator, creator")?.textContent?.trim() || "";
 
   // Manifest: id → href
@@ -202,7 +205,8 @@ async function parseEpub(
   return {
     chapters,
     rawText: allTexts.join("\n\n"),
-    fileName: file.name,
+    fileName,
+    epubBuffer: buffer,
   };
 }
 
