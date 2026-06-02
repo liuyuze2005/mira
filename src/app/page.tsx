@@ -6,7 +6,7 @@ import { getBooks, saveBook, deleteBook, createBook, getBook } from "@/lib/store
 import { filterByChapter, buildCharacterPrompt, buildScenePrompt, buildMomentPrompt } from "@/lib/extractor";
 import { Lang, getSystemLang, translations, TranslationDict } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
-import BookUpload, { type EpubResult } from "@/components/BookUpload";
+import BookUpload, { type TxtResult } from "@/components/BookUpload";
 import CharacterCardComp from "@/components/CharacterCard";
 import SceneCardComp from "@/components/SceneCard";
 import SpoilerGate from "@/components/SpoilerGate";
@@ -17,7 +17,7 @@ import ChapterList from "@/components/ChapterList";
 import BookOverview from "@/components/BookOverview";
 import MapView from "@/components/MapView";
 import ReaderView from "@/components/ReaderView";
-import EpubReader from "@/components/EpubReader";
+
 import type { MapGraph } from "@/lib/types";
 
 interface QueueItem { id: string; label: string; status: "queued" | "generating" | "done" | "failed"; }
@@ -96,8 +96,8 @@ export default function Home() {
     } catch (e) { alert(String(e)); } finally { setGeneratingOverview(false); }
   };
 
-  // ── Upload → directly save chapters (browser-side EPUB parse) ──
-  const handleParsed = useCallback(async (result: EpubResult) => {
+  // ── Upload → directly save chapters ──
+  const handleParsed = useCallback(async (result: TxtResult) => {
     setShowUpload(false);
     if (!selectedBook) return;
 
@@ -109,7 +109,6 @@ export default function Home() {
       ...current,
       chapters: result.chapters,
       rawText: result.rawText,
-      epubBuffer: result.epubBuffer,
       currentChapter: firstBody ? firstBody.index : current.currentChapter,
     };
     await saveBook(updated);
@@ -474,21 +473,8 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Reader: epub.js for EPUB, legacy for txt/pdf */}
+              {/* Reader: always uses ReaderView */}
               {currentChapter && (
-                selectedBook.epubBuffer ? (
-                  <EpubReader
-                    epubBuffer={selectedBook.epubBuffer}
-                    onLocationChange={(_cfi, progress) => {
-                      // Map epub.js progress to chapter
-                      const idx = Math.floor(progress * bodyChapters.length) + 1;
-                      const target = bodyChapters.find(c => c.index === idx) || bodyChapters[Math.min(idx - 1, bodyChapters.length - 1)];
-                      if (target && target.index !== selectedBook.currentChapter) {
-                        handleSelectChapter(target.index);
-                      }
-                    }}
-                  />
-                ) : (
                   <ReaderView
                     t={t}
                     chapter={currentChapter}
@@ -504,7 +490,6 @@ export default function Home() {
                     onPrevChapter={handlePrevChapter}
                     onNextChapter={handleNextChapter}
                   />
-                )
               )}
 
               {/* Cards section */}

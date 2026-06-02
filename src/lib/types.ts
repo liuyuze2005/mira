@@ -137,7 +137,6 @@ export interface Book {
   profile?: BookProfile;
   knowledgeSource: KnowledgeSource;
   rawText?: string;                // full text for chapter parsing
-  epubBuffer?: ArrayBuffer;        // raw EPUB for epub.js reader
   createdAt: number;
 }
 
