@@ -44,7 +44,7 @@ export default function ReaderView({
   const [fontSize, setFontSize] = useState(18);
   const [lineHeight, setLineHeight] = useState(1.9);
   const [pageIndex, setPageIndex] = useState(0);
-  const [pageBreaks, setPageBreaks] = useState<number[]>([0]);
+  const [pageBreaks, setPageBreaks] = useState<number[] | null>(null);
   const [selectedText, setSelectedText] = useState("");
   const [popupPos, setPopupPos] = useState<{ x: number; y: number } | null>(null);
   const [asking, setAsking] = useState(false);
@@ -63,7 +63,7 @@ export default function ReaderView({
     [chapter.text]
   );
 
-  const totalPages = pageBreaks.length;
+  const totalPages = pageBreaks?.length ?? 0;
   const safePageIndex = Math.min(pageIndex, Math.max(totalPages - 1, 0));
 
   // ── Pagination: compute pages (returns breaks, does NOT set state) ──
@@ -138,9 +138,9 @@ export default function ReaderView({
   };
 
   // ── Current page paragraphs ──
-  const startIdx = pageBreaks[safePageIndex] || 0;
-  const endIdx = safePageIndex + 1 < pageBreaks.length ? pageBreaks[safePageIndex + 1] : paragraphs.length;
-  const pageParagraphs = paragraphs.slice(startIdx, endIdx);
+  const startIdx = (pageBreaks?.[safePageIndex]) ?? 0;
+  const endIdx = pageBreaks && safePageIndex + 1 < pageBreaks.length ? pageBreaks[safePageIndex + 1] : paragraphs.length;
+  const pageParagraphs = pageBreaks ? paragraphs.slice(startIdx, endIdx) : [];
 
   // ── Text selection ──
   const handleSelection = useCallback(() => {
@@ -295,6 +295,12 @@ export default function ReaderView({
             fontFamily: "Georgia, 'Noto Serif SC', 'Songti SC', serif",
           }}
         >
+          {/* Empty page placeholder */}
+          {pageBreaks === null && paragraphs.length > 0 && (
+            <div className="flex items-center justify-center h-64 text-muted text-sm">
+              正在计算分页…
+            </div>
+          )}
           {pageParagraphs.map((p, i) => (
             <p key={i} className="indent-8 text-primary/85 mb-2">
               {p}
@@ -302,9 +308,9 @@ export default function ReaderView({
           ))}
 
           {/* Empty page placeholder */}
-          {pageParagraphs.length === 0 && (
+          {pageBreaks !== null && pageParagraphs.length === 0 && (
             <div className="flex items-center justify-center h-64 text-muted text-sm">
-              正在计算分页…
+              (空白页)
             </div>
           )}
         </div>
@@ -330,7 +336,7 @@ export default function ReaderView({
               style={{ width: `${totalPages > 1 ? (safePageIndex / (totalPages - 1)) * 100 : 0}%` }} />
           </div>
           <div className="text-muted text-[10px] text-center mt-0.5">
-            {safePageIndex + 1} / {totalPages} 页 · 第 {currentChapter}/{totalChapters} 章
+            {pageBreaks === null ? "计算中…" : `${safePageIndex + 1} / ${totalPages} 页 · 第 ${currentChapter}/${totalChapters} 章`}
           </div>
         </div>
 
