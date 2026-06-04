@@ -29,7 +29,17 @@ export default function BookUpload({ t, onParsed }: Props) {
     }
     setParsing(true);
     try {
-      const text = await file.text();
+      // Read as bytes for encoding detection
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+
+      // Try UTF-8 first, then GBK if too many replacement chars
+      let text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      const replacementCount = (text.match(/\uFFFD/g) || []).length;
+      if (replacementCount > text.length * 0.01 || replacementCount > 100) {
+        text = new TextDecoder("gbk", { fatal: false }).decode(bytes);
+      }
+
       if (!text.trim()) {
         setError("文件内容为空");
         return;
